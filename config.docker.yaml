@@ -1,0 +1,19 @@
+server:
+  host: 0.0.0.0
+  port: 7860
+  greeting: hello
+persona:
+  file: persona.md
+llm:
+  engine: test
+  reply: 这是 Docker 联调模式，尚未连接真实模型。
+stt:
+  engine: test
+tts:
+  engine: test
+avatar:
+  enabled: false
+vad:
+  device: cpu
+memory:
+  turns: 4

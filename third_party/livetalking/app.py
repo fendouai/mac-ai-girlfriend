@@ -178,6 +178,7 @@ def main():
 
     appasync.on_shutdown.append(on_shutdown)
     appasync.router.add_post("/offer", offer)
+    appasync.router.add_post("/close_session", rtc_manager.handle_close_session)
     appasync.router.add_get("/record/{sessionid}", download_record)
 
     # 注册 server/routes.py 中的通用 API 路由

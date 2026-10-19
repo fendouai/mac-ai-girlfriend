@@ -1,3 +1,4 @@
+let avatarEnabled = true;
 /* ============================================================================
  * Hex AI Girlfriend — 本地实时数字人语音对话 (Realtime AI Digital Girlfriend)
  * Copyright (C) 2026 Hex-电脑课堂 (Hex Computer Classroom)
@@ -18,6 +19,9 @@
 import { S2sWsRealtimeClient } from "./ws/s2s-ws-client.js";
 import { $, truncateError } from "./ui/dom.js";
 import { ChatView } from "./ui/chat.js";
+import { AvatarPresentation } from "./avatar-presentation.js?v=polish-5";
+const presentation = new AvatarPresentation();
+window.AvatarPresentation = presentation;
 
 const DEFAULT_INSTRUCTIONS =
   "You are a friendly voice assistant. Keep replies short, warm, and spoken.";
@@ -143,6 +147,7 @@ function syncMicMuteState() {
 
 function setState(next) {
   currentState = next;
+  presentation.setStatus(next);
   const view = STATE_VIEWS[next] || STATE_VIEWS.idle;
   circleBtn.disabled = view.disabled;
   circleBtn.className = "circle " + (STATE_CLASS[next] || STATE_CLASS.idle);
@@ -290,8 +295,15 @@ async function acquireMicStream() {
 }
 
 function wireClientEvents(c) {
+  c.addEventListener("reply-progress", (e) => {
+    if (client !== c || currentState === "ai-speaking") return;
+    const caption = e.detail.stage === "synthesizing" ? "正在准备声音…" : "正在想怎么回答…";
+    setCaption(caption, "muted");
+  });
   c.addEventListener("status", (e) => onClientStatus(e.detail.status));
-  c.addEventListener("transcript", (e) => chat.onTranscript(e.detail));
+  c.addEventListener("transcript", (e) => { chat.onTranscript(e.detail); presentation.react(e.detail); });
+  c.addEventListener("audio-ready", (e) => presentation.setAudio(e.detail.analyser, e.detail.context));
+  c.addEventListener("interrupted", () => presentation.interrupt());
   c.addEventListener("user-turn-started", (e) => chat.onUserTurnStarted(e.detail));
   c.addEventListener("user-turn-stopped", (e) => chat.onUserTurnStopped(e.detail));
   c.addEventListener("user-audio", (e) => chat.onUserAudio(e.detail));
@@ -305,7 +317,7 @@ function wireClientEvents(c) {
   // orchestrator 反向要 sessionid：把当前 avatar 的 LiveTalking sessionid 回传
   c.addEventListener("sessionid-request", () => {
     const sid = window.DigitalAvatar?.sessionid;
-    if (sid) c.sendControl({ type: "sessionid", sessionid: sid });
+    if (sid && presentation.usesVideoAudio) c.sendControl({ type: "sessionid", sessionid: sid });
   });
 }
 
@@ -333,15 +345,17 @@ function onClientStatus(status) {
   }
 }
 
-async function doStart(audioContext) {
+async function doStart(audioContext, preview = false) {
+  await configReady;
   chat.clear();
   chat.reset();
   setState("connecting");
   setCaption("连接中…", "muted");
 
+  if (presentation.mode === 'body') await presentation.body?.load();
   if (!audioContext) audioContext = createResumedAudioContext();
   try {
-    await primeMicPermission();
+    if (!preview) await primeMicPermission();
   } catch (err) {
     if (audioContext) void audioContext.close().catch(() => {});
     throw err;
@@ -351,11 +365,18 @@ async function doStart(audioContext) {
   const c = new S2sWsRealtimeClient({
     directUrl,
     voice: "",
-    instructions: settings.instructions,
-    acquireMic: acquireMicStream,
+    instructions: settings.instructions + (presentation.mode === 'body'
+      ? '\n你当前的3D形象能够挥手、点头、思考、讲述、鞠躬、原地走动和跳舞；会执行用户明确的动作请求。请简短自然地回应，不要声称能做未提供的动作。'
+      : ''),
+    acquireMic: preview ? async () => {
+      // A silent local track allows greeting playback through the real client,
+      // without requesting or reading the hardware microphone.
+      micStream = audioContext.createMediaStreamDestination().stream;
+      return micStream;
+    } : acquireMicStream,
     noiseGate: gateParams(settings.noiseGate),
     audioOutputId: settings.audioOutputId || "",
-    audioFromAvatar: true,
+    audioFromAvatar: presentation.usesVideoAudio,
     ...(audioContext ? { audioContext } : {}),
   });
   client = c;
@@ -369,7 +390,7 @@ async function doStart(audioContext) {
     throw err;
   }
   // 数字人：画面+声音都从 LiveTalking 同一条 WebRTC 流回传（同轨，天然对口型）。
-  if (window.DigitalAvatar) {
+  if (presentation.usesVideoAudio && window.DigitalAvatar) {
     // 同一页面多次「开始对话」时，avatar WebRTC 已连过（pc 在），不再触发
     // avatar-ready，而 orchestrator 每次新 WS 连接都会清掉 sessionid →
     // 口型音频不再喂。每次连上后都主动把当前 avatar sessionid 回传一次。
@@ -393,6 +414,7 @@ async function teardown() {
   }
   micMuted = false;
   micBtn.classList.remove("muted");
+  presentation.interrupt();
   setState("idle");
 }
 
@@ -484,7 +506,7 @@ settingsForm.addEventListener("submit", (event) => {
   settings = readSettingsFromForm();
   saveSettings(settings);
   // 数字人 ID 改了：重连 avatar WebRTC（新 sessionid 经 avatar-ready 回传后端）
-  if (settings.avatarId !== prevAvatar) window.DigitalAvatar?.restart();
+  if (presentation.usesVideoAudio && settings.avatarId !== prevAvatar) window.DigitalAvatar?.restart();
   if (client && LIVE_STATES.has(currentState)) {
     client.updateSession({ instructions: settings.instructions });
     void client.setAudioOutputDevice(settings.audioOutputId);
@@ -498,7 +520,7 @@ restartBtn.addEventListener("click", async () => {
   settingsModal.close();
   // 数字人 ID 改了：先重连 avatar（restart 会读新 localStorage 的 ID 并重新走
   // offer；doStart 里 connect() 因 connecting 在会直接跳过，不重复连）。
-  if (settings.avatarId !== prevAvatar) window.DigitalAvatar?.restart();
+  if (presentation.usesVideoAudio && settings.avatarId !== prevAvatar) window.DigitalAvatar?.restart();
   const audioContext = createResumedAudioContext();
   try {
     if (client) await teardown();
@@ -547,7 +569,7 @@ $("#fullscreen-btn").addEventListener("click", () => {
 /* ── 数字人 sessionid 回传后端（口型同步用） ─────────────────────────────── */
 window.addEventListener("avatar-ready", (e) => {
   const sid = e.detail && e.detail.sessionid;
-  if (sid && client) client.sendControl({ type: "sessionid", sessionid: sid });
+  if (sid && client && presentation.usesVideoAudio) client.sendControl({ type: "sessionid", sessionid: sid });
 });
 
 /* ── 数字人真实出声 → 字幕跟随（digital-avatar.js 旁路检测） ────────────── */
@@ -561,6 +583,16 @@ async function fetchConfig() {
     const res = await fetch("api/config");
     if (res.ok) {
       const json = await res.json();
+      avatarEnabled = json.avatarEnabled !== false;
+      if (Array.isArray(json.avatarIceServers)) window.DigitalAvatar?.setIceServers(json.avatarIceServers);
+      presentation.enabled = avatarEnabled;
+      const faceSelect = document.getElementById('face-character');
+      if (!settings.avatarId || settings.avatarId === 'hex_original_motion') {
+        settings.avatarId = 'hex_clean_original';
+        saveSettings(settings);
+      }
+      faceSelect.value = settings.avatarId;
+      await presentation.setMode(presentation.mode);
       const persona = (json.persona || "").trim();
       // 服务端配置：字幕静音判定延迟（config.yaml avatar.subtitle_hide_delay_ms）
       if (typeof json.subtitleHideDelayMs === "number") {
@@ -582,11 +614,58 @@ setState("idle");
 applySubtitles(settings.subtitles);
 // 页面加载即连数字人：让 LiveTalking sessionid 在点「开始对话」前就绪，
 // 口型不依赖那次点击触发的 WS 连接时序（doStart 里还会再补发一次 sessionid）。
-void window.DigitalAvatar?.connect();
 chat.renderEmptyState();
 initGateArc();
-void fetchConfig();
+const configReady = fetchConfig();
 
 requestAnimationFrame(() => {
   document.body.classList.remove("booting");
+});
+
+// Switching presentation ends the current voice session before changing its audio route.
+let presentationBusy = false;
+for (const button of document.querySelectorAll('[data-avatar-mode]')) {
+  button.addEventListener('click', async () => {
+    if (presentationBusy || button.dataset.avatarMode === presentation.mode) return;
+    presentationBusy = true;
+    const previousMode = presentation.mode;
+    try {
+      await configReady;
+      if (client) await teardown();
+      await presentation.setMode(button.dataset.avatarMode);
+      setCaption('已切换，点击开始对话');
+    } catch (error) {
+      await presentation.setMode(previousMode).catch(() => {});
+      document.getElementById('avatar-status').textContent = '人物加载失败：' + truncateError(error);
+    } finally { presentationBusy = false; }
+  });
+}
+document.getElementById('face-character').addEventListener('change', async (event) => {
+  if (client) await teardown();
+  settings.avatarId = event.target.value; saveSettings(settings); inputAvatarId.value = settings.avatarId;
+  if (presentation.usesVideoAudio) await window.DigitalAvatar?.restart();
+});
+for (const button of document.querySelectorAll('[data-gesture]')) {
+  button.addEventListener('click', () => presentation.gesture(button.dataset.gesture));
+}
+
+document.getElementById('avatar-preview-speech').addEventListener('click', async () => {
+  if (presentationBusy) return;
+  try {
+    if (client) await teardown();
+    await doStart(createResumedAudioContext(), true);
+  } catch (error) { await handleStartError(error); }
+});
+
+document.getElementById('avatar-text-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(presentationBusy)return;
+  const input=document.getElementById('avatar-text-input');
+  const text=input.value.trim();if(!text)return;
+  const button=event.currentTarget.querySelector('button');button.disabled=true;
+  try {
+    if(!client)await doStart(createResumedAudioContext(),true);
+    client.sendUserText(text);input.value='';
+  } catch(error) {await handleStartError(error);}
+  finally {button.disabled=false;}
 });

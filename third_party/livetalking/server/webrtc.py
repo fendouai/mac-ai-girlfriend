@@ -202,6 +202,12 @@ class HumanPlayer:
         new_frame.sample_rate = 16000
         self.__audio._queue.put((new_frame, eventpoint))
 
+    def flush(self):
+        for track in (self.__audio, self.__video):
+            with track._queue.mutex:
+                track._queue.queue.clear()
+                track._queue.not_full.notify_all()
+
     def get_buffer_size(self) -> int:
         return self.__video._queue.qsize()
 

@@ -105,7 +105,7 @@ class SenseVoiceSTT(STTBase):
                 }
         self.model = AutoModel(
             model=model,
-            trust_remote_code=True,
+            trust_remote_code=not os.path.isdir(model),
             vad_model=None,
             device=device,
             quantize=quantize,
@@ -113,6 +113,9 @@ class SenseVoiceSTT(STTBase):
             disable_pbar=True,
             **extra,
         )
+
+    def warmup(self):
+        self.transcribe(np.zeros(16000, dtype=np.float32))
 
     def transcribe(self, audio: np.ndarray) -> str:
         fd, path = tempfile.mkstemp(suffix=".wav")
@@ -142,6 +145,21 @@ class SenseVoiceSTT(STTBase):
                 pass
 
 
+class WhisperSTT(STTBase):
+    """跨平台 CPU Whisper，直接处理 16k numpy 音频。"""
+
+    def __init__(self, model="base", language="zh", **kwargs):
+        import whisper
+        self.model = whisper.load_model(model, device="cpu")
+        self.language = language
+
+    def transcribe(self, audio):
+        result = self.model.transcribe(
+            np.asarray(audio, dtype=np.float32), language=self.language, fp16=False,
+            temperature=0.0, beam_size=1, best_of=1, condition_on_previous_text=False)
+        return result.get("text", "").strip()
+
+
 class TestSTT(STTBase):
     """联调用：不依赖模型，固定返回一句话，验证整条链路"""
 
@@ -157,6 +175,8 @@ def build_stt(cfg: dict) -> STTBase:
     engine = c.pop("engine", "sensevoice")
     if engine == "sensevoice":
         return SenseVoiceSTT(**c)
+    if engine == "whisper":
+        return WhisperSTT(**c)
     if engine == "test":
         return TestSTT(**c)
     raise ValueError(f"未知 STT 引擎: {engine}")

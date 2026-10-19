@@ -42,7 +42,9 @@ def create_app(cfg):
 
     @app.get("/api/health")
     async def health():
-        return {"ok": orch is not None}
+        return {"ok": orch is not None and orch.engines_ready,
+                "engines_ready": orch.engines_ready if orch else False,
+                "startup_error": orch.startup_error if orch else None}
 
     # main.js 首次加载 GET api/config，用服务端人设预填 Instructions
     @app.get("/api/config")
@@ -51,6 +53,8 @@ def create_app(cfg):
         av = cfg.get("avatar", {})
         return {"search": False, "lb": False, "allowDirect": True,
                 "s2sUrl": "", "startupGreeting": "", "persona": persona,
+                "avatarEnabled": bool(av.get("enabled", True)),
+                "avatarIceServers": av.get("ice_servers", [{"urls": "stun:stun.l.google.com:19302"}]),
                 "subtitleHideDelayMs": int(av.get("subtitle_hide_delay_ms", 1000))}
 
 # __PART3__
@@ -82,7 +86,10 @@ def create_app(cfg):
             await ws.close()
             return
         await ws.accept()
-        await orch.run_ws(ws)
+        # Model weights are shared; VAD state, history, cancellation and avatar
+        # destination belong to this connection, including its disconnect path.
+        session = HexOrchestrator(cfg, engine_owner=orch)
+        await session.run_ws(ws)
 # __PART8__
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app

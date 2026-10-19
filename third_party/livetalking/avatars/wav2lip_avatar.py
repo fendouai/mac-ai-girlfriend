@@ -23,10 +23,13 @@ import torch
 import numpy as np
 
 import os
+import sys
 import time
 import cv2
 import glob
 import pickle
+import json
+from pathlib import Path
 
 import queue
 from queue import Queue
@@ -43,20 +46,31 @@ from tqdm import tqdm
 from utils.logger import logger
 from utils.image import read_imgs, mirror_index
 from utils.device import initialize_device
+from utils.mouth_compositor import MouthCompositor
 from registry import register
 
 device = initialize_device()
 logger.info('Using {} for inference.'.format(device))
 
 def _load(checkpoint_path):
-    if device == 'cuda':
-        checkpoint = torch.load(checkpoint_path)
-    else:
-        checkpoint = torch.load(checkpoint_path,
-                                map_location=lambda storage, loc: storage)
-    return checkpoint
+    # Load on CPU first, then move to CUDA/MPS; only model tensors are needed.
+    return torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+
+class CoreMLWav2Lip:
+    def __init__(self, path):
+        import coremltools as ct
+        self.network = ct.models.MLModel(path, compute_units=ct.ComputeUnit.ALL)
+
+    def predict(self, mel, face):
+        return self.network.predict({"mel": mel.astype(np.float32),
+                                     "face": face.astype(np.float32)})["prediction"]
+
 
 def load_model(path):
+    coreml_path = os.path.abspath("../../models/wav2lip256-b4.mlpackage")
+    if sys.platform == "darwin" and os.environ.get("HEX_AVATAR_BACKEND", "auto") in ("auto", "coreml") and os.path.isdir(coreml_path):
+        logger.info("Using Core ML (Apple CPU/GPU/Neural Engine) for original Wav2Lip256")
+        return CoreMLWav2Lip(coreml_path)
     model = Wav2Lip()
     logger.info("Load checkpoint from: {}".format(path))
     checkpoint = _load(path)
@@ -66,8 +80,7 @@ def load_model(path):
         new_s[k.replace('module.', '')] = v
     model.load_state_dict(new_s)
 
-    model = model.to(device)
-    return model.eval()
+    return model.to(device).eval()
 
 def load_avatar(avatar_id):
     avatar_path = f"./data/avatars/{avatar_id}"
@@ -100,8 +113,12 @@ def load_avatar(avatar_id):
 def warm_up(batch_size,model,modelres):
     # 预热函数
     logger.info('warmup model...')
-    img_batch = torch.ones(batch_size, 6, modelres, modelres).to(device)
-    mel_batch = torch.ones(batch_size, 1, 80, 16).to(device)
+    if isinstance(model, CoreMLWav2Lip):
+        model.predict(np.zeros((batch_size, 1, 80, 16), np.float32),
+                      np.zeros((batch_size, 6, modelres, modelres), np.float32))
+        return
+    img_batch = torch.ones(batch_size, 6, modelres, modelres, device=device, dtype=next(model.parameters()).dtype)
+    mel_batch = torch.ones(batch_size, 1, 80, 16, device=device, dtype=next(model.parameters()).dtype)
     model(mel_batch, img_batch)
 
 @register("avatar", "wav2lip")
@@ -118,7 +135,19 @@ class LipReal(BaseAvatar):
         self.model = model
 
         self.frame_list_cycle,self.face_list_cycle,self.coord_list_cycle = avatar
-
+        profiles_path = Path(__file__).resolve().parents[3]/'data/avatars/mouth-profiles.json'
+        profiles = json.loads(profiles_path.read_text()) if profiles_path.exists() else {}
+        profile = profiles.get('avatars', {}).get(opt.avatar_id)
+        source_path = Path('data/avatars')/opt.avatar_id/'source.json'
+        if profile and source_path.exists():
+            reference_hash = json.loads(source_path.read_text()).get('reference_sha256')
+            if reference_hash and reference_hash != profile.get('reference_sha256'):
+                logger.warning('Mouth profile does not match this portrait; using legacy compositing')
+                profile = None
+        self.mouth_compositor = MouthCompositor(profile) if profile else None
+        self._mouth_epoch = self.audio_epoch
+        if self.mouth_compositor:
+            logger.info('Using landmark-aligned multiband mouth compositing for %s', opt.avatar_id)
         self.asr = MelASR(opt,self)
         self.asr.warm_up()
     
@@ -139,19 +168,49 @@ class LipReal(BaseAvatar):
         img_batch = np.concatenate((img_masked, img_batch), axis=3) / 255.
         audiofeat_batch = np.reshape(audiofeat_batch, [len(audiofeat_batch), audiofeat_batch.shape[1], audiofeat_batch.shape[2], 1])
         
-        img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
-        audiofeat_batch = torch.FloatTensor(np.transpose(audiofeat_batch, (0, 3, 1, 2))).to(device)
+        if isinstance(self.model, CoreMLWav2Lip):
+            pred = self.model.predict(np.transpose(audiofeat_batch, (0, 3, 1, 2)),
+                                      np.transpose(img_batch, (0, 3, 1, 2)))
+            return pred.transpose(0, 2, 3, 1) * 255.
+
+        img_batch = torch.from_numpy(np.transpose(img_batch, (0, 3, 1, 2))).to(device=device, dtype=next(self.model.parameters()).dtype)
+        audiofeat_batch = torch.from_numpy(np.transpose(audiofeat_batch, (0, 3, 1, 2))).to(device=device, dtype=next(self.model.parameters()).dtype)
 
         with torch.no_grad():
             pred = self.model(audiofeat_batch, img_batch)
-        pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
+        pred = pred.float().cpu().numpy().transpose(0, 2, 3, 1) * 255.
         return pred
 
     def paste_back_frame(self,pred_frame,idx:int):
         bbox = self.coord_list_cycle[idx]
+        self._sync_mouth_epoch()
+        if self.mouth_compositor:
+            return self.mouth_compositor.compose(self.frame_list_cycle[idx], pred_frame, bbox)
         combine_frame = self.frame_list_cycle[idx].copy()
         y1, y2, x1, x2 = bbox
         res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
-        combine_frame[y1:y2, x1:x2] = res_frame
+        # Preserve source eyes/hair and full-resolution identity details. The
+        # Wav2Lip output is only 256px; paste its mouth/jaw through a soft mask.
+        key = (y2-y1, x2-x1)
+        if not hasattr(self, '_blend_masks'):
+            self._blend_masks = {}
+        if key not in self._blend_masks:
+            yy, xx = np.mgrid[0:key[0], 0:key[1]].astype(np.float32)
+            radius = ((xx/key[1] - 0.5)/0.45)**2 + ((yy/key[0] - 0.80)/0.24)**2
+            self._blend_masks[key] = np.clip((1-radius)/0.30, 0, 1)[..., None]
+        alpha = self._blend_masks[key]
+        source = combine_frame[y1:y2, x1:x2]
+        combine_frame[y1:y2, x1:x2] = (res_frame*alpha + source*(1-alpha)).astype(np.uint8)
         return combine_frame
+
+    def _sync_mouth_epoch(self):
+        if self._mouth_epoch != self.audio_epoch:
+            if self.mouth_compositor:self.mouth_compositor.reset()
+            self._mouth_epoch = self.audio_epoch
+
+    def postprocess_idle_frame(self, frame, idx):
+        self._sync_mouth_epoch()
+        if self.mouth_compositor:
+            return self.mouth_compositor.idle(frame, self.coord_list_cycle[idx])
+        return frame
 

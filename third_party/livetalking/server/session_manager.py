@@ -65,7 +65,7 @@ class SessionManager:
             sessionid = _rand_session_id()
             
         # 检查是否达到最大会话数
-        active_count = sum(1 for s in self.sessions.values() if s is not None)
+        active_count = len(self.sessions)  # include in-flight build reservations
         if active_count >= self.max_session:
             raise MaxSessionError(
                 f"Maximum session limit reached ({active_count}/{self.max_session})"

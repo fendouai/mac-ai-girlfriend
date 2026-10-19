@@ -1,5 +1,6 @@
 
 import cv2
+import os
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -12,16 +13,27 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 #     return frames
 
 def read_imgs(img_list):
-    def load_image(index, img_path):
-        return index, cv2.imread(img_path)
-
-    frames = [None] * len(img_list)  # Initialize a list with the same length as img_list
+    # Prepared facial avatars hard-link repeated neutral/blink states. Decode
+    # each inode once and share immutable source arrays across their frame slots.
+    keys=[]
+    unique={}
+    for path in img_list:
+        stat=os.stat(path)
+        key=(stat.st_dev,stat.st_ino)
+        keys.append(key)
+        unique.setdefault(key,path)
+    decoded={}
+    def load_image(key,path):
+        image=cv2.imread(path)
+        if image is None:
+            raise ValueError(f"Cannot decode avatar frame: {path}")
+        return key,image
     with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(load_image, idx, img_path): idx for idx, img_path in enumerate(img_list)}
-        for future in tqdm(as_completed(futures), total=len(img_list)):
-            idx, img = future.result()
-            frames[idx] = img
-    return frames
+        futures=[executor.submit(load_image,key,path) for key,path in unique.items()]
+        for future in tqdm(as_completed(futures),total=len(futures)):
+            key,image=future.result()
+            decoded[key]=image
+    return [decoded[key] for key in keys]
 
 def mirror_index(size, index):
     turn = index // size

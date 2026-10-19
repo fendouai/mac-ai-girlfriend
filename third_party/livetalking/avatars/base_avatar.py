@@ -59,6 +59,7 @@ class AudioFrameData:
     data: NDArray[np.float32]
     type: int = 0  # 默认值
     userdata: dict = field(default_factory=dict)
+    epoch: int = 0
 
 class BaseAvatar:
     def __init__(self, opt):
@@ -68,6 +69,7 @@ class BaseAvatar:
         self.sessionid = self.opt.sessionid
 
         self.speaking = False
+        self.audio_epoch = 0
         self.recording = False
         self._record_video_pipe = None
         self._record_audio_pipe = None
@@ -183,6 +185,10 @@ class BaseAvatar:
         return stream
 
     def flush_talk(self):
+        self.audio_epoch += 1
+        player = getattr(getattr(self, 'output', None), '_player', None)
+        if player is not None:
+            player.flush()
         if hasattr(self, 'tts') and hasattr(self.tts, 'flush_talk'):
             self.tts.flush_talk()
         if hasattr(self, 'asr') and hasattr(self.asr, 'flush_talk'):
@@ -399,6 +405,11 @@ class BaseAvatar:
             except queue.Empty:
                 continue
             
+            # Discard speech already in feature/render queues when it was interrupted.
+            audio_frames = [AudioFrameData(data=np.zeros_like(frame.data), type=1,
+                                          epoch=self.audio_epoch)
+                            if frame.type == 0 and frame.epoch != self.audio_epoch else frame
+                            for frame in audio_frames]
             # 检测状态变化
             current_speaking = not (audio_frames[0].type!=0 and audio_frames[1].type!=0)
             if current_speaking != _last_speaking:
@@ -427,6 +438,8 @@ class BaseAvatar:
                     _last_silent_frame = combine_frame.copy()
                 else:
                     combine_frame = target_frame
+                if hasattr(self, 'postprocess_idle_frame'):
+                    combine_frame = self.postprocess_idle_frame(combine_frame, idx)
             else:
                 self.speaking = True
                 try:

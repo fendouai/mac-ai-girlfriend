@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "avatars": {
+    "hex_clean_original": {
+      "center": [
+        0.49379050731658936,
+        0.41688744723796844
+      ],
+      "width": 0.09978398006955913,
+      "angle": 0.07103448756045015,
+      "nose_floor": 0.38782966136932373,
+      "reference": "data/avatars/generated/original-clean-v1.png",
+      "reference_sha256": "55173ac48f15e74db4c2ae215f3bd1a94c13666207bdd5ccf31a89d345551b95",
+      "method": "MediaPipe 478 facial landmarks; source pixels unchanged"
+    },
+    "hex_clean_sweet": {
+      "center": [
+        0.5256676971912384,
+        0.4054175615310669
+      ],
+      "width": 0.12661501435742648,
+      "angle": -0.1551949424318327,
+      "nose_floor": 0.3746533989906311,
+      "reference": "data/avatars/generated/sweet-clean-v1.png",
+      "reference_sha256": "ee6f7b191e154c156db5b0f941e597f240584e5b07bb140d05d5edde66378413",
+      "method": "MediaPipe 478 facial landmarks; source pixels unchanged"
+    }
+  }
+}

@@ -7,6 +7,7 @@
 # =============================================================================
 # LLM 大模型：可插拔接口，默认 llama.cpp（OpenAI 兼容 /v1 流式）
 import json
+import re
 import subprocess
 from urllib.parse import urlsplit, urlunsplit
 
@@ -44,9 +45,36 @@ class LLMBase:
         raise NotImplementedError
 
 
+def limit_spoken_reply(text, max_chars=0, max_sentences=0):
+    """Stop at a natural boundary while streaming, before expensive speech work."""
+    endings = list(re.finditer(r'[。！？!?]+[”’\"\u0027]*', text))
+    if max_sentences and len(endings) >= max_sentences:
+        text = text[:endings[max_sentences-1].end()]
+        stopped = True
+    else:
+        stopped = False
+    if max_chars and len(text) > max_chars:
+        prefix = text[:max_chars]
+        # Prefer a complete sentence or clause near the budget. A short opening
+        # such as “嗯。” must not discard the actual answer that follows it.
+        boundaries = [m for m in re.finditer(r'[。！？!?，,；;：:]', prefix)
+                      if m.end() >= max_chars//2]
+        if boundaries:
+            end = boundaries[-1]
+            text = prefix[:end.end()]
+            if text[-1] in '，,；;：:':
+                text = text[:-1]+'。'
+        else:
+            # Last-resort bound for a model ignoring the short-reply instruction.
+            text = prefix[:-1].rstrip()+'。'
+        stopped = True
+    return text, stopped
+
+
 class LlamaCppLLM(LLMBase):
     def __init__(self, base_url="http://127.0.0.1:8099/v1", api_key="",
-                 model="", temperature=1.0, top_p=0.95, max_tokens=256, **kwargs):
+                 model="", temperature=1.0, top_p=0.95, max_tokens=256,
+                 max_reply_chars=0, max_reply_sentences=0, **kwargs):
         base_url = self._adapt_base_url(base_url)
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.headers = {"Authorization": "Bearer " + api_key} if api_key else {}
@@ -54,6 +82,8 @@ class LlamaCppLLM(LLMBase):
         self.temperature = temperature
         self.top_p = top_p
         self.max_tokens = max_tokens
+        self.max_reply_chars = max(0, int(max_reply_chars))
+        self.max_reply_sentences = max(0, int(max_reply_sentences))
 
     @staticmethod
     def _adapt_base_url(base_url):
@@ -103,7 +133,10 @@ class LlamaCppLLM(LLMBase):
                     out.append(delta)
                     if on_token:
                         on_token(delta)
-        return "".join(out)
+                    limited, stopped = limit_spoken_reply(''.join(out), self.max_reply_chars, self.max_reply_sentences)
+                    if stopped:
+                        return limited
+        return limit_spoken_reply(''.join(out), self.max_reply_chars, self.max_reply_sentences)[0]
 
 
 class TestLLM(LLMBase):

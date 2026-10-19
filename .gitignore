@@ -22,3 +22,18 @@ _reverse_report.txt
 
 # 备份目录（不上传）
 .bak-*/
+
+# Local runtime logs and PID files
+logs/
+
+# Installed, pinned dependency; restored by scripts/install-mac.sh
+/third_party/LivePortrait/
+/third_party/assetfurnace/
+/third_party/hunyuan-mlx/
+.venv-3d/
+
+# Local credentials and macOS metadata
+.env
+.env.local
+.env.*.local
+.DS_Store

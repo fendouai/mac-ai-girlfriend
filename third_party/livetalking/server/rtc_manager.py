@@ -37,7 +37,10 @@ class RTCManager:
             opt: 全局配置
         """
         self.opt = opt
+        from streamout.apple_codec import install_apple_h264
+        install_apple_h264()
         self.pcs: set = set()
+        self.session_pcs = {}
 
     async def _create_pc_and_answer(self, avatar_session, sessionid, offer):
         """创建 PeerConnection、添加轨道、SDP 交换，返回已完成 answer 的 pc。
@@ -47,17 +50,22 @@ class RTCManager:
         """
         ice_server = RTCIceServer(urls=self.opt.stun)
         pc = RTCPeerConnection(
-            configuration=RTCConfiguration(iceServers=[ice_server])
+            configuration=RTCConfiguration(iceServers=[ice_server] if self.opt.stun else [])
         )
         self.pcs.add(pc)
+        self.session_pcs[sessionid] = pc
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
             logger.info("Connection state is %s", pc.connectionState)
             if pc.connectionState in ("failed", "closed"):
-                await pc.close()
+                # Release the permit before awaiting transport shutdown; awaiting
+                # close from the closed event can otherwise delay/remove nothing.
                 self.pcs.discard(pc)
+                self.session_pcs.pop(sessionid, None)
                 session_manager.remove_session(sessionid)
+                if pc.connectionState != "closed":
+                    await pc.close()
 
         try:
             # 添加发送轨道
@@ -85,6 +93,7 @@ class RTCManager:
             except Exception:
                 pass
             self.pcs.discard(pc)
+            self.session_pcs.pop(sessionid, None)
             raise
 
     async def handle_offer(self, request):
@@ -132,6 +141,17 @@ class RTCManager:
                 "sessionid": sessionid,
             }),
         )
+
+    async def handle_close_session(self, request):
+        """Explicit, idempotent release for mode/character switches."""
+        params = await request.json()
+        sessionid = str(params.get("sessionid", ""))
+        pc = self.session_pcs.pop(sessionid, None)
+        session_manager.remove_session(sessionid)
+        if pc is not None:
+            self.pcs.discard(pc)
+            await pc.close()
+        return web.json_response({"code": 0, "sessionid": sessionid})
 
     async def handle_whep(self, request):
         """

@@ -1,0 +1,25 @@
+{
+  "source": "https://github.com/Bingeljell/image-to-3dlab",
+  "commit": "91879333e88a0571945b15b0e21e4bc95ec59e31",
+  "producer": "NVIDIA Kimodo-SOMA-RP-v1.1",
+  "license": "NVIDIA Open Model License",
+  "note": "Pre-generated output clips; no Kimodo runtime or language-model weights are needed.",
+  "files": [
+    {
+      "file": "wave.npz",
+      "sha256": "9f028211c7e709cd7f04f7b30a7f7a8dc4abc757e6517c390f8834b9082d7773"
+    },
+    {
+      "file": "cheer.npz",
+      "sha256": "385b4c2695aacd0b676451b17f9da96150a2a19690ff24cca7c4c3e962b634b0"
+    },
+    {
+      "file": "dance.npz",
+      "sha256": "2d866752416ed41f7c935bba921bfcac31d202b0ab3f9961abf5c7c5e3fb8e14"
+    },
+    {
+      "file": "walk_woman.npz",
+      "sha256": "a803410504f213f60bc9c41b77b4dd667a00c1b84b31f39aeb6ffebdecfe7a6c"
+    }
+  ]
+}

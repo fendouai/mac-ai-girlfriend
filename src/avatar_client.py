@@ -22,7 +22,9 @@ class AvatarClient:
     def interrupt(self, sessionid):
         with httpx.Client(timeout=30) as c:
             try:
-                c.post(self.base + '/interrupt_talk', json={'sessionid': sessionid})
+                response = c.post(self.base + '/interrupt_talk', json={'sessionid': sessionid})
+                if response.is_success and response.json().get('code') == 0:
+                    return
             except Exception:
                 pass
             try:

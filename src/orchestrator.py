@@ -48,8 +48,19 @@ class _AbortError(Exception):
 
 
 class HexOrchestrator:
-    def __init__(self, cfg):
+    @property
+    def abort(self):
+        return self._aborted
+
+    @abort.setter
+    def abort(self, value):
+        self._aborted = bool(value)
+        if value and hasattr(self, '_response_cancel'):
+            self._response_cancel.set()
+
+    def __init__(self, cfg, engine_owner=None):
         self.cfg = cfg
+        self._engine_owner = engine_owner
         self._lock = threading.Lock()
         self._stt = None
         self._llm = None
@@ -79,7 +90,10 @@ class HexOrchestrator:
         self._mem_turns = int(cfg.get("memory", {}).get("turns", 4))
 
         self.reset_session()
-        self._warmup()
+        self.engines_ready = False
+        self.startup_error = None
+        if engine_owner is None:
+            self._warmup()
 
     # ------------------------------------------------------------ 人设
 
@@ -99,9 +113,28 @@ class HexOrchestrator:
         return text
 
     def _effective_persona(self) -> str:
-        return self._persona_override or self.persona
+        text = self._persona_override or self.persona
+        limit = int(self.cfg.get('llm', {}).get('max_reply_chars', 0))
+        if limit:
+            # A saved browser persona must not reintroduce long spoken replies.
+            # Replace our old suffix rather than duplicating it on reconnect.
+            marker = '\n\n[语音短回复规则]\n'
+            text = text.split(marker, 1)[0].rstrip()
+            text += (marker + f'这是实时语音聊天。通常只说10～24字，最多两句，总长不超过{limit}字。'
+                     '直接回答，不铺垫、不重复安慰。笑话也要短而完整。'
+                     '需要展开时只说最关键的一小段，等用户说“继续”再补充下一段，'
+                     '承接上文，不重讲。不要一次输出长故事、长解释或多项列表。'
+                     '笑话采用简短的一问一答，不写人物对话故事。'
+                     '\n语音回答示例：'
+                     '\n用户：今天加班有点累。\n回答：辛苦啦，靠着我歇一会儿吧。'
+                     '\n用户：给我讲个笑话。\n回答：程序员为什么怕猫？因为猫会抓鼠标呀。'
+                     '\n用户：周末怎么休息，详细说说？\n回答：先睡个够，再做一件你喜欢的小事。'
+                     '\n用户：继续。\n回答：下午可以出去走走，晚上早点休息。')
+        return text
 
     def _ensure(self, kind):
+        if self._engine_owner is not None:
+            return self._engine_owner._ensure(kind)
         with self._lock:
             if kind == "stt":
                 if self._stt is None:
@@ -122,12 +155,16 @@ class HexOrchestrator:
 
         def build():
             try:
-                self._ensure("stt")
+                stt = self._ensure("stt")
+                if hasattr(stt, "warmup"):
+                    stt.warmup()
                 self._ensure("llm")
                 tts = self._ensure("tts")
                 if hasattr(tts, "warmup"):
                     tts.warmup()
-            except Exception:
+                self.engines_ready = True
+            except Exception as exc:
+                self.startup_error = str(exc)
                 traceback.print_exc()
 
         threading.Thread(target=build, name="warmup", daemon=True).start()
@@ -142,6 +179,7 @@ class HexOrchestrator:
         # 「重新开始对话」都清空 → 新 sessionid 到达前所有 TTS 分块被丢弃（无口型）。
         # 前端每次连上都会重发 sessionid 来刷新它；连接失败清成 None 由浏览器处理。
         self.sessionid = getattr(self, "sessionid", None)
+        self._avatar_transport = "webrtc"
         self.busy = False
         self.abort = False
         self._session_id = "sess_" + uuid.uuid4().hex[:8]
@@ -152,6 +190,7 @@ class HexOrchestrator:
         self._active_item_id = None
         self._turn_seg = None
         self._turn_pending = False
+        self._latest_text_id = None
         self._vad_buf = np.zeros(0, dtype=np.float32)
         self._audio_clock_ms = 0.0
         self._reply_text = {}
@@ -166,15 +205,15 @@ class HexOrchestrator:
             old_q.put(None)
         self._avatar_q = queue.Queue(maxsize=64)
         self._avatar_ready = threading.Event()
-        t = threading.Thread(target=self._avatar_loop, name="avatar-q", daemon=True)
+        t = threading.Thread(target=self._avatar_loop, args=(self._avatar_q, self._avatar_ready), name="avatar-q", daemon=True)
         self._avatar_worker = t
         t.start()
 
-    def _avatar_loop(self):
+    def _avatar_loop(self, audio_queue, ready):
         """消费完整回复 WAV → LiveTalking /humanaudio（口型）。视频轨静音，音频不走这里。"""
-        self._avatar_ready.wait(timeout=10.0)
+        ready.wait(timeout=10.0)
         while True:
-            wav = self._avatar_q.get()
+            wav = audio_queue.get()
             if wav is None:
                 return
             sid = self.sessionid
@@ -229,16 +268,35 @@ class HexOrchestrator:
             pass
         finally:
             self.abort = True
+            self._interrupt_avatar()
+            self._avatar_q.put(None)
+            self._avatar_ready.set()
+            self.ws = None
+
+    def _interrupt_avatar(self):
+        if self.sessionid and self.cfg.get("avatar", {}).get("enabled", True):
+            with self._avatar_q.mutex:
+                self._avatar_q.queue.clear()
+                self._avatar_q.not_full.notify_all()
+            sid = self.sessionid
+            threading.Thread(target=lambda: self.avatar.interrupt(sid), daemon=True).start()
 
     def _handle_event(self, event):
         t = event.get("type")
         if t == "session.update":
             s = event.get("session")
             if isinstance(s, dict):
+                transport = s.get("avatar_transport")
+                if transport in ("browser", "webrtc"):
+                    if transport == "browser":
+                        self._interrupt_avatar()
+                        self.sessionid = None
+                        self._avatar_ready.set()
+                    self._avatar_transport = transport
                 inst = s.get("instructions")
                 if isinstance(inst, str) and inst.strip():
                     self._persona_override = inst.strip()
-            self._send_sync({"type": "session.updated", "session": {"id": self._session_id}})
+            self._send_sync({"type": "session.updated", "session": {"id": self._session_id, "avatar_transport": self._avatar_transport}})
             self._maybe_greet()
         elif t == "input_audio_buffer.append":
             audio = event.get("audio")
@@ -246,7 +304,22 @@ class HexOrchestrator:
                 self.feed_audio(audio)
         elif t in ("input_audio_buffer.clear", "response.cancel"):
             self.abort = True
-        elif t == "sessionid":
+            self._interrupt_avatar()
+        elif t == "user.text":
+            text = event.get("text")
+            if not isinstance(text, str) or not text.strip():
+                return
+            text = text.strip()[:2000]
+            item_id = "msg_" + uuid.uuid4().hex
+            self._latest_text_id = item_id
+            self._turn_pending = False
+            self.abort = True
+            self._interrupt_avatar()
+            self._send_sync({"type": "input_audio_buffer.speech_started", "item_id": item_id})
+            self._send_sync({"type": "conversation.item.input_text.completed", "item_id": item_id,
+                             "transcript": text})
+            self.loop.create_task(self._drain_text_turn(text, item_id, self._session_id))
+        elif t == "sessionid" and self._avatar_transport == "webrtc":
             sid = event.get("sessionid")
             if sid:
                 self.sessionid = sid
@@ -287,6 +360,7 @@ class HexOrchestrator:
             # 数字人刚开口 / 上段语音刚落音的余音回声：整段忽略，防自触发
             self._vad_ignore = True
             return
+        self._latest_text_id = None
         self._current_item_id = "msg_" + uuid.uuid4().hex
         self.abort = True  # 打断进行中的回复
         self._ignore_vad_until_ms = self._audio_clock_ms + self._ignore_self_ms
@@ -294,7 +368,7 @@ class HexOrchestrator:
         if sid and (self.busy or self._audio_clock_ms < self._avatar_playing_until_ms):
             # 回复生成中 或 数字人正在出声（整段式下音频已推给 LiveTalking、busy 早已释放）
             # → 立刻让 LiveTalking 停口型/停声，别让上一句盖住用户的插话
-            threading.Thread(target=lambda: self.avatar.interrupt(sid), daemon=True).start()
+            self._interrupt_avatar()
 
         audio_start_ms = max(0, self._audio_clock_ms - len(self.detector.pre) * self.frame_ms)
         self._send_sync({
@@ -320,6 +394,27 @@ class HexOrchestrator:
 
     # ===== turn pipeline =====
 
+    async def _drain_text_turn(self, text, item_id, session_id):
+        """Typed dialogue shares the real reply/TTS pipeline and serializes interruptions."""
+        for _ in range(200):
+            if session_id != self._session_id or item_id != self._latest_text_id:
+                return
+            if not self.busy:
+                break
+            await asyncio.sleep(0.05)
+        else:
+            self._send_sync({"type": "error", "error": {"code": "text_busy",
+                             "message": "上一条回复仍在收尾，请稍后重试。"}})
+            return
+        self.busy = True
+        self.abort = False
+        try:
+            self._push_history("user", text)
+            await self._run_reply()
+        finally:
+            if session_id == self._session_id:
+                self.busy = False
+
     async def _drain_turn(self):
         """单回合管线：busy 串行化。上一回合没收尾就等它退（用户抢话不能丢）。"""
         if not self._turn_pending:
@@ -339,7 +434,10 @@ class HexOrchestrator:
         try:
             seg = self._turn_seg
             self._turn_seg = None
+            stt_started = time.perf_counter()
             text = await asyncio.to_thread(self._stt_transcribe, seg)
+            log.info("[timing] stt %.3fs for %.2fs audio",
+                     time.perf_counter() - stt_started, len(seg) / self.sr)
             # 识别结果进日志（./start-all.sh logs 跟随编排层日志时可见 STT）
             log.info("[hexgf] stt: %s", text or "(空)")
             if self.abort or not text:
@@ -365,12 +463,14 @@ class HexOrchestrator:
         self._reply_text = {}
         self._sent_transcript = ""  # 字幕增量进度：_release_transcript 按音频时间轴推进
         self._active_response_id = "resp_" + uuid.uuid4().hex
+        self._response_cancel = threading.Event()
         self._active_item_id = "msg_" + uuid.uuid4().hex
         self._tts_q = queue.Queue(maxsize=32)
         self._tts_done = threading.Event()
         threading.Thread(target=self._tts_worker, name="tts-q", daemon=True).start()
 
         self._send_sync({"type": "response.created", "response": {"id": self._active_response_id}})
+        self._send_sync({"type": "response.progress", "stage": "thinking"})
         self._send_sync({
             "type": "response.output_item.added",
             "item": {
@@ -400,15 +500,26 @@ class HexOrchestrator:
         """worker 线程：跑 LLM 流式生成，token 只累积（_on_llm_token）。
         整段式：LLM 收尾后把全文一次性入 TTS 队列，TTS 整段合成。"""
         text = None
+        started = time.perf_counter()
+        first_token = None
+        def receive_token(token):
+            nonlocal first_token
+            if first_token is None:
+                first_token = time.perf_counter()-started
+            self._on_llm_token(token)
         try:
             llm = self._ensure("llm")
-            text = llm.generate(messages, on_token=self._on_llm_token)
+            text = llm.generate(messages, on_token=receive_token)
         except _AbortError:
             text = None
         except Exception:
             traceback.print_exc()
             text = None
         finally:
+            log.info("[timing] llm total=%.3fs first_token=%s chars=%d aborted=%s",
+                     time.perf_counter()-started,
+                     "%.3fs" % first_token if first_token is not None else "none",
+                     len(text or ""), self.abort)
             # 以返回值为准回填（个别引擎 on_token 未覆盖全部 token 时兜底）
             if text:
                 self._reply_text[self._active_item_id] = text
@@ -450,23 +561,27 @@ class HexOrchestrator:
         单次 on_chunk → 完整 WAV 一次 WS delta + 一次 POST /humanaudio。
         无句间缝隙、无逐块 HTTP 往返；keep-frame 仍作 WebRTC 空队列安全网。"""
         q = self._tts_q
+        done = self._tts_done
         rid = self._active_response_id
+        cancel_event = self._response_cancel
         try:
             tts = self._ensure("tts")
         except Exception:
             traceback.print_exc()
-            self._tts_done.set()
+            done.set()
             return
         text = q.get()  # 整段全文；None = 空回复/中止
         if not text or self.abort or rid != self._active_response_id:
-            self._tts_done.set()
+            done.set()
             return
         try:
-            tts.synthesize(text, on_chunk=lambda wav: self._on_tts_chunk(wav, rid))
+            self._send_sync({"type": "response.progress", "stage": "synthesizing"})
+            kwargs = {"cancel": cancel_event.is_set} if getattr(tts, 'supports_cancellation', False) else {}
+            tts.synthesize(text, on_chunk=lambda wav: self._on_tts_chunk(wav, rid), **kwargs)
         except Exception:
             traceback.print_exc()
         finally:
-            self._tts_done.set()
+            done.set()
 
     def _on_tts_chunk(self, wav, rid):
         if self.abort or rid != self._active_response_id:
@@ -488,6 +603,8 @@ class HexOrchestrator:
             "delta": base64.b64encode(pcm).decode("ascii"),
         })
         sid = self.sessionid
+        if self._avatar_transport == "browser" or not self.cfg.get("avatar", {}).get("enabled", True):
+            return
         if sid:
             try:
                 self._avatar_q.put_nowait(wav)
@@ -509,8 +626,14 @@ class HexOrchestrator:
 
     async def _finish_turn(self):
         """等 TTS 线程放完本回合音频，发收尾事件（output_audio.done / response.done）。"""
-        wait_s = 2.0 if self.abort else 30.0
-        await asyncio.to_thread(self._tts_done.wait, wait_s)
+        # Do not declare a completed reply while local synthesis is still running.
+        # Cancellation returns promptly; the worker owns its captured done event.
+        done = self._tts_done
+        while not done.is_set():
+            if self.abort:
+                await asyncio.to_thread(done.wait, 2.0)
+                break
+            await asyncio.sleep(0.05)
         self._tts_q = None
         rid = self._active_response_id
         transcript = self._reply_text.get(self._active_item_id, "")
@@ -546,7 +669,7 @@ class HexOrchestrator:
             return
         # 等 sessionid（最多 4s）再开口：开场白也要有口型。前端每次连上都会回传，
         # 同页重连是瞬时到达，新开页等 offer 完成；没等到则照常说话。
-        if not self.sessionid:
+        if self._avatar_transport == "webrtc" and self.cfg.get("avatar", {}).get("enabled", True) and not self.sessionid:
             await asyncio.to_thread(self._avatar_ready.wait, 4.0)
             if not self.sessionid:
                 log.warning("[hexgf] greet timeout: no sessionid after 4s — greeting without lip sync")

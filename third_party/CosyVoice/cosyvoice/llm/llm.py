@@ -154,6 +154,11 @@ class TransformerLM(torch.nn.Module):
             sampling: int,
             ignore_eos: bool = True,
     ):
+        # Sampling scans at most 25 scalar probabilities in Python. On MPS each
+        # scalar comparison would synchronize the GPU; transfer this small vector
+        # once and keep the original sampling algorithm on the CPU.
+        if weighted_scores.device.type == 'mps':
+            weighted_scores = weighted_scores.float().cpu()
         if ignore_eos is True:
             weighted_scores[self.speech_token_size] = -float('inf')
         top_ids = self.sampling(weighted_scores, decoded_tokens, sampling)
@@ -240,16 +245,19 @@ class Qwen2Encoder(torch.nn.Module):
         return outs.hidden_states[-1], masks.unsqueeze(1)
 
     def forward_one_step(self, xs, masks, cache=None):
+        if hasattr(self, 'native_decoder'):
+            return self.native_decoder.forward_one_step(xs, cache)
         input_masks = masks[:, -1, :]
-        outs = self.model(
+        # CosyVoice uses its own speech-token head. Running Qwen's 151936-way
+        # text head here computes unused logits at every autoregressive step.
+        outs = self.model.model(
             inputs_embeds=xs,
             attention_mask=input_masks,
-            output_hidden_states=True,
             return_dict=True,
             use_cache=True,
             past_key_values=cache,
         )
-        xs = outs.hidden_states[-1]
+        xs = outs.last_hidden_state
         new_cache = outs.past_key_values
         return xs, new_cache
 
@@ -503,6 +511,9 @@ class Qwen2LM(TransformerLM):
 
     @torch.inference_mode()
     def inference_wrapper(self, lm_input, sampling, min_len, max_len, uuid):
+        if hasattr(self, 'native_decoder'):
+            yield from self.native_decoder.inference(self, lm_input, sampling, min_len, max_len)
+            return
         if hasattr(self, 'vllm'):
             from vllm import SamplingParams, RequestOutput
             sampling_params = SamplingParams(top_k=sampling,

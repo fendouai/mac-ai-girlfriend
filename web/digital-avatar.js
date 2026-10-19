@@ -22,6 +22,7 @@
   var CFG = {
     offerUrl: '/lt/offer',          // 经 server.py 反代到 LiveTalking :8010
     reconnectMs: 3000,
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     avatarIdKey: 'hexgf.avatarId',
   };
 
@@ -30,6 +31,9 @@
   var audio = null;
   var sessionid = 0;
   var connecting = false;
+  var enabled = true;
+  var reconnectTimer = null;
+  var generation = 0;
   var probe = null;   // 旁路音频活动检测（驱动字幕跟随真实出声）
   var subtitleHideDelayMs = 1000;  // 静音持续多久才判定「已停声」（config.yaml avatar.subtitle_hide_delay_ms）
 
@@ -91,6 +95,7 @@
       var sum = 0;
       for (var i = 0; i < data.length; i++) sum += data[i] * data[i];
       var rms = Math.sqrt(sum / data.length);
+      if (audio) audio.dataset.peakRms = String(Math.max(Number(audio.dataset.peakRms || 0), rms));
       if (rms > 0.008) {
         silentCount = 0;
         if (!speaking) {
@@ -131,14 +136,43 @@
     });
   }
 
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    if (enabled) reconnectTimer = setTimeout(function () { if (enabled) connect(); }, CFG.reconnectMs);
+  }
+
+  function releaseSession(id) {
+    if (!id) return Promise.resolve();
+    return fetch('/lt/close_session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionid: id }), keepalive: true,
+    }).catch(function (error) { console.warn('[avatar] release:', error); });
+  }
+
+  function disconnect() {
+    enabled = false;
+    generation++;
+    clearTimeout(reconnectTimer);
+    if (probe) { probe.stop(); probe = null; }
+    if (pc) { pc.onconnectionstatechange = null; pc.close(); pc = null; }
+    if (audio) { audio.pause(); audio.srcObject = null; }
+    if (video) { video.srcObject = null; }
+    var oldSession = sessionid;
+    sessionid = 0; connecting = false;
+    document.getElementById('av-layer').classList.remove('live');
+    return releaseSession(oldSession);
+  }
+
   function connect() {
+    enabled = true;
     if (pc || connecting) return;
     connecting = true;
+    var currentGeneration = ++generation;
     // 重连/换形象时清理旧探针，避免监听已死会话的流
     if (probe) { probe.stop(); probe = null; }
     try {
       var v = getVideo();
-      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      pc = new RTCPeerConnection({ iceServers: CFG.iceServers });
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.addTransceiver('audio', { direction: 'recvonly' });
 
@@ -159,19 +193,29 @@
       };
 
       pc.onconnectionstatechange = function () {
-        if (['failed', 'closed', 'disconnected'].indexOf(pc.connectionState) >= 0) {
+        if (generation !== currentGeneration || pc !== currentPc) return;
+        if (['failed', 'closed', 'disconnected'].indexOf(currentPc.connectionState) >= 0) {
+          releaseSession(sessionid);
+          currentPc.onconnectionstatechange = null;
+          currentPc.close();
           document.getElementById('av-layer').classList.remove('live');
           pc = null;
           sessionid = 0;
-          setTimeout(connect, CFG.reconnectMs);
+          scheduleReconnect();
         }
       };
 
       var avatar = currentAvatarId();
-      return pc.setLocalDescription(pc.createOffer())
-        .then(function () { return waitIce(pc); })
+      var currentPc = pc;
+      function assertCurrent() {
+        if (!enabled || generation !== currentGeneration) throw new Error('avatar connection superseded');
+      }
+      return currentPc.createOffer()
+        .then(function (offer) { assertCurrent(); return currentPc.setLocalDescription(offer); })
+        .then(function () { assertCurrent(); return waitIce(currentPc); })
         .then(function () {
-          var body = { sdp: pc.localDescription.sdp, type: pc.localDescription.type };
+          assertCurrent();
+          var body = { sdp: currentPc.localDescription.sdp, type: currentPc.localDescription.type };
           if (avatar) body.avatar = avatar;   // 指定形象 ID，否则 LiveTalking 用默认
           return fetch(CFG.offerUrl, {
             method: 'POST',
@@ -188,11 +232,16 @@
           return r.json();
         })
         .then(function (ans) {
+          if (!enabled || generation !== currentGeneration) releaseSession(ans.sessionid);
+          assertCurrent();
+          if (!ans.sdp) throw new Error(ans.msg || '数字人没有返回有效连接');
           sessionid = ans.sessionid;
           window.dispatchEvent(new CustomEvent('avatar-ready', { detail: { sessionid: sessionid } }));
-          return pc.setRemoteDescription(ans);
+          return currentPc.setRemoteDescription(ans);
         })
         .catch(function (err) {
+          if (generation !== currentGeneration || !enabled) return;
+          if (currentPc) { currentPc.onconnectionstatechange = null; currentPc.close(); }
           console.error('[avatar] 连接失败:', err);
           pc = null;
           sessionid = 0;
@@ -202,15 +251,15 @@
             localStorage.removeItem(CFG.avatarIdKey);
             console.warn('[avatar] 形象数据不完整，已回退默认形象，重新连接');
           }
-          setTimeout(connect, CFG.reconnectMs);
+          scheduleReconnect();
         })
-        .finally(function () { connecting = false; });
+        .finally(function () { if (generation === currentGeneration) connecting = false; });
     } catch (err) {
       console.error('[avatar] 连接异常:', err);
       pc = null;
       sessionid = 0;
       connecting = false;
-      setTimeout(connect, CFG.reconnectMs);
+      scheduleReconnect();
       return Promise.resolve();
     }
   }
@@ -229,13 +278,7 @@
 
   /** 改形象 ID 后重连 WebRTC：新 sessionid 经 avatar-ready 回传给后端。 */
   function restart() {
-    if (pc) {
-      try { pc.close(); } catch (e) {}
-      pc = null;
-    }
-    sessionid = 0;
-    connecting = false;
-    connect();
+    return disconnect().then(connect);
   }
 
   function setSinkId(deviceId) {
@@ -251,8 +294,12 @@
     if (Number.isFinite(v) && v > 0) subtitleHideDelayMs = v;
   }
 
+  window.addEventListener('pagehide', disconnect);
+
   window.DigitalAvatar = {
     connect: connect,
+    disconnect: disconnect,
+    setIceServers: function (servers) { CFG.iceServers = servers; },
     restart: restart,
     ensureAudioPlay: ensureAudioPlay,
     setSinkId: setSinkId,

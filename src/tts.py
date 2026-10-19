@@ -8,6 +8,7 @@
 # TTS 语音合成：可插拔接口，默认 CosyVoice2-0.5B（funasr 生态）
 import logging
 import sys
+import time
 
 import numpy as np
 
@@ -26,13 +27,25 @@ class TTSBase:
 
 
 class CosyVoice2TTS(TTSBase):
+    supports_cancellation = True
     def __init__(self, model_dir, ref_wav=None, ref_text="", device="cuda:0",
                  speed=1.0, chunk_ms=0, cosyvoice_repo=None, instruct="",
-                 speaker="中文女", **kwargs):
+                 speaker="中文女", fp16=False, flow_coreml=None, **kwargs):
         if cosyvoice_repo:
             sys.path.insert(0, cosyvoice_repo)
         from cosyvoice.cli.cosyvoice import CosyVoice2
-        self.model = CosyVoice2(model_dir, load_jit=False, load_trt=False, fp16=False)
+        self.model = CosyVoice2(model_dir, load_jit=False, load_trt=False, fp16=fp16, device=device)
+        if kwargs.get('speech_backend') == 'mlx':
+            from apple_acceleration import MLXSpeechDecoder
+            dtype = kwargs.get('speech_dtype', 'float32')
+            self.model.model.llm.native_decoder = MLXSpeechDecoder(self.model.model.llm, dtype=dtype)
+            if kwargs.get('speech_release_torch', True):
+                self.model.model.llm.native_decoder.release_torch_decoder(self.model.model.llm)
+            log.info("Using MLX Metal for original CosyVoice speech-token decoder (%s)", dtype)
+        if flow_coreml:
+            from apple_acceleration import CoreMLFlowEstimator
+            decoder = self.model.model.flow.decoder
+            decoder.estimator = CoreMLFlowEstimator(flow_coreml, decoder.estimator)
         self.speed = float(speed)
         self.chunk_ms = int(chunk_ms or 0)
         self.instruct = instruct or None
@@ -40,6 +53,9 @@ class CosyVoice2TTS(TTSBase):
         self.prompt_text = ref_text or ""
         # 传文件路径而非张量：inference_zero_shot/instruct2 内部会自己 load_wav 到 24k
         self.ref_wav = ref_wav or ""
+        self._prompt_input_cache = None
+        import threading
+        self._synthesis_lock = threading.RLock()
 
     def _reset_stream_hop(self):
         """上游 Bug：CosyVoice2 流式循环里 token_hop_len 25→50→100 递增后不复位，
@@ -74,6 +90,8 @@ class CosyVoice2TTS(TTSBase):
         """一次性缓存 zero-shot prompt 侧特征（ref.wav → 文本 token/语音 token/语音特征/说话人嵌入），
         模拟 frontend_zero_shot 的 CosyVoice2 截断规则（sample_rate==24000）。每句增量合成时复用，
         不再重编码 ref.wav —— 逐句重编码是逐句 tts() 1.5s 级句间缝隙的根源。"""
+        if self._prompt_input_cache is not None:
+            return self._prompt_input_cache
         front = self.model.frontend
         norm_ref = front.text_normalize(self.prompt_text, split=False, text_frontend=True)
         prompt_text, _ = front._extract_text_token(norm_ref)
@@ -85,7 +103,7 @@ class CosyVoice2TTS(TTSBase):
             speech_feat = speech_feat[:, :2 * token_len]
             speech_token = speech_token[:, :token_len]
         embedding = front._extract_spk_embedding(self.ref_wav)
-        return {
+        self._prompt_input_cache = {
             "prompt_text": prompt_text,
             "llm_prompt_speech_token": speech_token,
             "flow_prompt_speech_token": speech_token,
@@ -93,6 +111,7 @@ class CosyVoice2TTS(TTSBase):
             "llm_embedding": embedding,
             "flow_embedding": embedding,
         }
+        return self._prompt_input_cache
 
     @staticmethod
     def _materialize_text(text_iter):
@@ -179,7 +198,35 @@ class CosyVoice2TTS(TTSBase):
             if rest:
                 self.synthesize(rest, on_chunk=on_chunk)
 
-    def synthesize(self, text, on_chunk=None):
+    def synthesize(self, text, on_chunk=None, cancel=None):
+        waiting = time.perf_counter()
+        while not self._synthesis_lock.acquire(timeout=.05):
+            if cancel and cancel():
+                return
+        hook = None
+        try:
+            if cancel and cancel():
+                return
+            started = time.perf_counter()
+            log.info("[timing] tts lock_wait=%.3fs chars=%d", started-waiting, len(str(text)))
+            if cancel:
+                def check_cancel(module, inputs):
+                    if cancel():
+                        raise InterruptedError("Speech synthesis cancelled")
+                hook = self.model.model.flow.decoder.estimator.register_forward_pre_hook(check_cancel)
+            try:
+                return self._synthesize_unlocked(text, on_chunk, cancel)
+            except InterruptedError:
+                if not cancel or not cancel():
+                    raise
+            finally:
+                log.info("[timing] tts synthesis=%.3fs chars=%d cancelled=%s", time.perf_counter()-started, len(str(text)), bool(cancel and cancel()))
+        finally:
+            if hook is not None:
+                hook.remove()
+            self._synthesis_lock.release()
+
+    def _synthesize_unlocked(self, text, on_chunk=None, cancel=None):
         text = str(text or "").strip()
         if not text:
             return
@@ -188,8 +235,8 @@ class CosyVoice2TTS(TTSBase):
         front = self.model.frontend
         try:
             norm = front.text_normalize(text, split=False, text_frontend=True)
-            norm_ref = front.text_normalize(self.prompt_text, split=False, text_frontend=True)
-            gen = self.model.model.tts(**front.frontend_zero_shot(norm, norm_ref, self.ref_wav, self.model.sample_rate, ''), stream=True, speed=self.speed)
+            token, _ = front._extract_text_token(norm)
+            gen = self.model.model.tts(text=token, **self._cached_prompt_input(), stream=self.chunk_ms > 0, speed=self.speed, cancel=cancel)
         except Exception:
             log.warning("[tts] direct stream failed", exc_info=True)
             if self.instruct and self.ref_wav:
@@ -203,6 +250,9 @@ class CosyVoice2TTS(TTSBase):
     
         acc = []
         for chunk in gen:
+            if cancel and cancel():
+                gen.close()
+                return
             tts_speech = chunk.get("tts_speech")
             if tts_speech is None:
                 continue
@@ -215,7 +265,7 @@ class CosyVoice2TTS(TTSBase):
                     on_chunk(b)
             else:
                 acc.append(wav)
-        if self.chunk_ms <= 0 and acc and on_chunk:
+        if self.chunk_ms <= 0 and acc and on_chunk and (not cancel or not cancel()):
             full = np.concatenate(acc)
             on_chunk(numpy_to_wav_bytes(resample_np(full, 24000, 16000), 16000))
 
@@ -225,7 +275,32 @@ class CosyVoice2TTS(TTSBase):
         try:
             self.synthesize("好的，我们就这样说好了。", on_chunk=None)
         except Exception:
-            log.warning("[tts] warmup failed (first reply will be slower)", exc_info=True)
+            log.warning("[tts] warmup failed", exc_info=True)
+            raise
+
+
+class MacOSSayTTS(TTSBase):
+    """macOS 系统语音，输出 WAV 供浏览器播放，不在主机直接出声。"""
+
+    def __init__(self, voice="Tingting", **kwargs):
+        self.voice = voice
+
+    def synthesize(self, text, on_chunk=None):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        import soundfile as sf
+        if not str(text).strip():
+            return
+        with tempfile.TemporaryDirectory(prefix="hex-tts-") as folder:
+            path = str(Path(folder) / "speech.aiff")
+            subprocess.run(["/usr/bin/say", "-v", self.voice, "-o", path,
+                            "--", str(text)], check=True, timeout=120)
+            audio, sr = sf.read(path, dtype="float32")
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
+            if on_chunk:
+                on_chunk(numpy_to_wav_bytes(resample_np(audio, sr, 16000), 16000))
 
 
 class TestTTS(TTSBase):
@@ -247,6 +322,8 @@ def build_tts(cfg):
     engine = c.pop("engine", "cosyvoice")
     if engine == "cosyvoice":
         return CosyVoice2TTS(**c)
+    if engine == "macos":
+        return MacOSSayTTS(**c)
     if engine == "test":
         return TestTTS(**c)
     raise ValueError("未知 TTS 引擎: " + engine)

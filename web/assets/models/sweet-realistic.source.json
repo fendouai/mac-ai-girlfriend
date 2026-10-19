@@ -1,0 +1,288 @@
+{
+  "file": "sweet-realistic.vrm",
+  "sha256": "a058de510e83303379d8c57710bcd7dbec8558ba96da3c62824ff545acba4e16",
+  "bytes": 24723096,
+  "character": "Fictional adult sweet Asian woman generated with the built-in GPT image tool",
+  "reference_images": [
+    "data/avatars/generated/sweet-clean-v1.png",
+    "data/avatars/generated/sweet-3d-front-v1.png"
+  ],
+  "rear_reference": "data/avatars/generated/sweet-3d-back-v1.png (visual QA reference)",
+  "humanoid_bones": 52,
+  "facial_morphs": [
+    "aa",
+    "oh",
+    "ih",
+    "blink",
+    "happy",
+    "sad",
+    "relaxed"
+  ],
+  "stages": {
+    "geometry": {
+      "backend": "Hunyuan3D-2.0-MLX",
+      "quantize": 8,
+      "source": "data/avatars/generated/sweet-3d-front-v1.png",
+      "source_sha256": "32436af32dd604e50d108d23238bafac80e23a3d071f85d8e93fa2952aeca01b",
+      "parameters": {
+        "num_inference_steps": 30,
+        "guidance_scale": 5.0,
+        "octree_resolution": 1024,
+        "seed": 42,
+        "octree_decode": true,
+        "compile_dit": true
+      },
+      "dense": {
+        "vertices": 1029687,
+        "faces": 2059350,
+        "bounds": [
+          [
+            -0.6253275447695235,
+            -0.998769495590929,
+            -0.186498829341343
+          ],
+          [
+            0.6238445944333926,
+            0.996610586292809,
+            0.17564398771841883
+          ]
+        ],
+        "watertight": true,
+        "components": 6
+      },
+      "faces": 119920,
+      "vertices": 59962,
+      "duration_seconds": 965.5904860496521,
+      "peak_gpu_bytes": 10459352164,
+      "license": "Tencent Hunyuan Community License",
+      "cleanup": {
+        "discarded_small_components": 7,
+        "discarded_faces": 80
+      }
+    },
+    "hands": {
+      "vertices": 60076,
+      "faces": 120148,
+      "watertight": true,
+      "hand_faces": {
+        "R": 3335,
+        "L": 3335
+      },
+      "wrist_bridge_faces": 159,
+      "template": "MakeHuman base hands, CC0",
+      "source": "21 MediaPipe points per GPT photo hand"
+    },
+    "materials": {
+      "backend": "Hunyuan3D-2.1-MLX-PBR",
+      "parameters": {
+        "PAINT_MESH": "models/character3d-work/sweet-refined-shape.obj",
+        "PAINT_IMG": "models/character3d-work/paint-conditioning-square.png",
+        "PAINT_SEED": "0",
+        "PAINT_RES": "512",
+        "PAINT_STEPS": "15",
+        "PAINT_TEX": "4096",
+        "PAINT_SR": "1"
+      },
+      "source_sha256": "32436af32dd604e50d108d23238bafac80e23a3d071f85d8e93fa2952aeca01b",
+      "geometry_sha256": "47bdf0ffdf0b1cc44b9b18491b8e77a5c7b952a15b1b9cec7164185686aff4a5",
+      "duration_seconds": 1105.0766458511353,
+      "peak_gpu_bytes": 23390713854,
+      "license": "Tencent Hunyuan Community License"
+    },
+    "skeleton": {
+      "backend": "SkinTokens on PyTorch MPS",
+      "source_sha256": "89d7c276368cd1bda9ec76ecc48ca5aaf555b4b571f6e14f1132aa2e81ad5efe",
+      "output_sha256": "cbe5178eb1ce28d434c7e7f63cb83ece48fd64cfd04bc3fd8c43a1eb808d2467",
+      "duration_seconds": 313.60086393356323,
+      "license": "MIT",
+      "repository": "https://github.com/VAST-AI-Research/SkinTokens",
+      "code_commit": "273b691d35989d71cd17ff2895fdc735097b92d1",
+      "weight_revision": "79736cad0fd84de384d5eede659b4ebd24effe33"
+    },
+    "face": {
+      "vertices": 10398,
+      "polygons": 10224,
+      "morphs": [
+        "aa",
+        "oh",
+        "ih",
+        "blink",
+        "happy",
+        "sad",
+        "relaxed"
+      ],
+      "subdivision_levels": 2,
+      "objects": [
+        "FaceSurface",
+        "FaceEye0",
+        "FaceEye1",
+        "FaceMouthInterior",
+        "FaceTooth0",
+        "FaceTooth1",
+        "FaceTooth2",
+        "FaceTooth3",
+        "FaceTooth4",
+        "FaceTooth5",
+        "FaceTooth6",
+        "FaceTooth7"
+      ],
+      "texture": "GPT sweet-clean-v1.png portrait",
+      "topology": "MediaPipe canonical face, Apache-2.0"
+    },
+    "assembly": {
+      "humanoid": {
+        "hips": "bone_0",
+        "spine": "bone_1",
+        "chest": "bone_2",
+        "upperChest": "bone_3",
+        "neck": "bone_4",
+        "head": "bone_5",
+        "leftShoulder": "bone_6",
+        "leftUpperArm": "bone_7",
+        "leftLowerArm": "bone_8",
+        "leftHand": "bone_9",
+        "leftUpperLeg": "bone_44",
+        "leftLowerLeg": "bone_45",
+        "leftFoot": "bone_46",
+        "leftToes": "bone_47",
+        "leftThumbMetacarpal": "bone_10",
+        "leftThumbProximal": "bone_11",
+        "leftThumbDistal": "bone_12",
+        "leftIndexProximal": "bone_13",
+        "leftIndexIntermediate": "bone_14",
+        "leftIndexDistal": "bone_15",
+        "leftMiddleProximal": "bone_19",
+        "leftMiddleIntermediate": "bone_20",
+        "leftMiddleDistal": "bone_21",
+        "leftRingProximal": "bone_22",
+        "leftRingIntermediate": "bone_23",
+        "leftRingDistal": "bone_24",
+        "leftLittleProximal": "bone_16",
+        "leftLittleIntermediate": "bone_17",
+        "leftLittleDistal": "bone_18",
+        "rightShoulder": "bone_25",
+        "rightUpperArm": "bone_26",
+        "rightLowerArm": "bone_27",
+        "rightHand": "bone_28",
+        "rightUpperLeg": "bone_48",
+        "rightLowerLeg": "bone_49",
+        "rightFoot": "bone_50",
+        "rightToes": "bone_51",
+        "rightThumbMetacarpal": "bone_29",
+        "rightThumbProximal": "bone_30",
+        "rightThumbDistal": "bone_31",
+        "rightIndexProximal": "bone_35",
+        "rightIndexIntermediate": "bone_36",
+        "rightIndexDistal": "bone_37",
+        "rightMiddleProximal": "bone_38",
+        "rightMiddleIntermediate": "bone_39",
+        "rightMiddleDistal": "bone_40",
+        "rightRingProximal": "bone_41",
+        "rightRingIntermediate": "bone_42",
+        "rightRingDistal": "bone_43",
+        "rightLittleProximal": "bone_32",
+        "rightLittleIntermediate": "bone_33",
+        "rightLittleDistal": "bone_34"
+      },
+      "soma_mapping": {
+        "bone_0": "Hips",
+        "bone_1": "Spine1",
+        "bone_2": "Spine2",
+        "bone_3": "Chest",
+        "bone_4": "Neck2",
+        "bone_5": "Head",
+        "bone_6": "LeftShoulder",
+        "bone_7": "LeftArm",
+        "bone_8": "LeftForeArm",
+        "bone_9": "LeftHand",
+        "bone_10": "LeftHandThumb1",
+        "bone_11": "LeftHandThumb2",
+        "bone_12": "LeftHandThumb3",
+        "bone_13": "LeftHandIndex2",
+        "bone_14": "LeftHandIndex3",
+        "bone_15": "LeftHandIndex4",
+        "bone_19": "LeftHandMiddle2",
+        "bone_20": "LeftHandMiddle3",
+        "bone_21": "LeftHandMiddle4",
+        "bone_22": "LeftHandRing2",
+        "bone_23": "LeftHandRing3",
+        "bone_24": "LeftHandRing4",
+        "bone_16": "LeftHandPinky2",
+        "bone_17": "LeftHandPinky3",
+        "bone_18": "LeftHandPinky4",
+        "bone_25": "RightShoulder",
+        "bone_26": "RightArm",
+        "bone_27": "RightForeArm",
+        "bone_28": "RightHand",
+        "bone_29": "RightHandThumb1",
+        "bone_30": "RightHandThumb2",
+        "bone_31": "RightHandThumb3",
+        "bone_35": "RightHandIndex2",
+        "bone_36": "RightHandIndex3",
+        "bone_37": "RightHandIndex4",
+        "bone_38": "RightHandMiddle2",
+        "bone_39": "RightHandMiddle3",
+        "bone_40": "RightHandMiddle4",
+        "bone_41": "RightHandRing2",
+        "bone_42": "RightHandRing3",
+        "bone_43": "RightHandRing4",
+        "bone_32": "RightHandPinky2",
+        "bone_33": "RightHandPinky3",
+        "bone_34": "RightHandPinky4",
+        "bone_44": "LeftLeg",
+        "bone_45": "LeftShin",
+        "bone_46": "LeftFoot",
+        "bone_47": "LeftToeBase",
+        "bone_48": "RightLeg",
+        "bone_49": "RightShin",
+        "bone_50": "RightFoot",
+        "bone_51": "RightToeBase"
+      },
+      "face_object": "FaceSurface",
+      "head_bone": "bone_5",
+      "body_vertices": 69431,
+      "face_vertices": 69431,
+      "source": "GPT references -> MLX surface/PBR -> anatomical hands -> SkinTokens -> measured facial morphs"
+    },
+    "polish": {
+      "method": "Taubin lambda/mu volume-preserving surface refinement",
+      "iterations": 16,
+      "vertices": 69431,
+      "maximum_displacement": 0.008000000000000002,
+      "fine_hair_strands": 480,
+      "strand_vertices": 52941,
+      "hair_vertices_removed_from_arm_bindings": 602,
+      "materials": {
+        "AvatarSkinPortrait": 10498,
+        "AvatarKnit": 51894,
+        "AvatarHair": 13253,
+        "AvatarTrousers": 37743,
+        "AvatarShoes": 8302,
+        "AvatarSkinHands": 6738
+      },
+      "preserved": [
+        "humanoid skin weights",
+        "portrait UVs",
+        "all facial morph targets"
+      ]
+    }
+  },
+  "attribution": [
+    {
+      "component": "MakeHuman anatomical hand template",
+      "license": "CC0",
+      "source": "https://github.com/makehumancommunity/makehuman"
+    },
+    {
+      "component": "MediaPipe canonical face topology",
+      "license": "Apache-2.0",
+      "source": "https://github.com/google-ai-edge/mediapipe"
+    },
+    {
+      "component": "AssetFurnace Apple Silicon pipeline",
+      "license": "Apache-2.0",
+      "source": "https://github.com/Bingeljell/image-to-3dlab"
+    }
+  ],
+  "limitations": "Audio-energy/frequency driven visemes; no claim of Mandarin phoneme-level alignment. Hair is a generated mesh, without strand-level hair simulation. Sad/relaxed are reserved zero morphs; blink, happy and three mouth shapes have actual deformation."
+}

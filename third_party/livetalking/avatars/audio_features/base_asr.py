@@ -48,10 +48,13 @@ class BaseASR:
         #self.warm_up()
 
     def flush_talk(self):
-        self.queue.queue.clear()
+        with self.queue.mutex:
+            self.queue.queue.clear()
+            self.queue.not_full.notify_all()
 
     def put_audio_frame(self,audio_chunk:NDArray[np.float32],datainfo:dict): #16khz 20ms pcm
-        self.queue.put(AudioFrameData(data=audio_chunk,type=0,userdata=datainfo))
+        self.queue.put(AudioFrameData(data=audio_chunk,type=0,userdata=datainfo,
+                                      epoch=getattr(self.parent, "audio_epoch", 0)))
 
     #return frame:audio pcm; type: 0-normal speak, 1-silence; eventpoint:custom event sync with audio
     def get_audio_frame(self)->AudioFrameData:        

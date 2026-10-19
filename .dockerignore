@@ -1,0 +1,11 @@
+*
+!src/
+!src/**
+!web/
+!web/**
+!models/
+!models/silero-vad/
+!models/silero-vad/**
+!persona.md
+!config.docker.yaml
+**/__pycache__

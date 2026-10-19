@@ -559,6 +559,7 @@ export class S2sWsRealtimeClient extends EventTarget {
     outAnalyser.connect(ctx.destination);
     this._outAnalyser = outAnalyser;
     this._playbackNode = playbackNode;
+    this.dispatchEvent(new CustomEvent('audio-ready', { detail: { analyser: outAnalyser, context: ctx } }));
 
     await this.setAudioOutputDevice(this.options.audioOutputId || "");
 
@@ -694,6 +695,10 @@ export class S2sWsRealtimeClient extends EventTarget {
         // already queued from session.created and is guarded against repeats.
         break;
 
+      case "response.progress":
+        this.dispatchEvent(new CustomEvent("reply-progress", { detail: { stage: event.stage } }));
+        break;
+
       case "input_audio_buffer.speech_started":
         // User started speaking — stop any audio still playing OR queued, every
         // time. We clear unconditionally (not just when `_aiSpeaking`): after a
@@ -701,6 +706,7 @@ export class S2sWsRealtimeClient extends EventTarget {
         // even though we already flipped `_aiSpeaking` off, and that tail would
         // otherwise keep playing over the user's barge-in.
         this._playbackNode?.port.postMessage({ kind: "clear" });
+        this.dispatchEvent(new CustomEvent('interrupted'));
         this._aiSpeaking = false;
         this._userAudioRecorder.speechStarted({
           itemId: typeof event.item_id === "string" ? event.item_id : "",
@@ -843,6 +849,7 @@ export class S2sWsRealtimeClient extends EventTarget {
         break;
       }
 
+      case "conversation.item.input_text.completed":
       case "conversation.item.input_audio_transcription.completed": {
         const transcript = typeof event.transcript === "string" ? event.transcript : "";
         if (transcript) {
@@ -986,6 +993,7 @@ export class S2sWsRealtimeClient extends EventTarget {
     const session = {
       type: "realtime",
       instructions: this.options.instructions,
+      avatar_transport: this._audioFromAvatar ? "webrtc" : "browser",
       audio: {
         output: { voice: this.options.voice },
       },
@@ -1056,6 +1064,12 @@ export class S2sWsRealtimeClient extends EventTarget {
         content: [{ type: "input_image", image_url: dataUrl }],
       },
     });
+  }
+
+  /** Typed turns use the same local language model and cloned voice as speech. */
+  sendUserText(text) {
+    const value=String(text||'').trim();
+    if(value)this._send({type:'user.text',text:value});
   }
 
   /**
@@ -1181,7 +1195,12 @@ export class S2sWsRealtimeClient extends EventTarget {
     this._visualiser = null;
     try {
       if (this._ws && this._ws.readyState <= WebSocket.OPEN) {
-        this._ws.close(1000, "client closed");
+        const socket = this._ws;
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 1000);
+          socket.addEventListener('close', () => { clearTimeout(timer); resolve(); }, { once: true });
+          socket.close(1000, "client closed");
+        });
       }
     } catch {
       // ignored

@@ -1,0 +1,54 @@
+# Mac 完整本地推理：CPU / Apple GPU，无需 CUDA
+fastapi
+uvicorn[standard]
+httpx
+pyyaml
+numpy<2
+mlx==0.32.4; platform_system == "Darwin" and platform_machine == "arm64"
+mlx-lm==0.29.1; platform_system == "Darwin" and platform_machine == "arm64"
+torch==2.5.1
+torchaudio==2.5.1
+soundfile
+openai-whisper==20250625
+
+# LiveTalking / Wav2Lip on Apple GPU
+opencv-python-headless==4.11.0.86
+aiortc==1.15.0
+aiohttp-cors
+resampy
+edge-tts
+flask
+python-dotenv
+librosa
+
+# Full local voice cloning and original STT (CPU ONNX on macOS)
+funasr
+modelscope
+transformers==4.51.3
+diffusers==0.39.0
+pyarrow==18.1.0
+pyworld==0.3.4
+setuptools<81
+hyperpyyaml
+inflect
+wetext==0.0.4
+matcha-tts==0.0.7.2
+onnxruntime
+einops
+torchvision==0.20.1
+
+# Reproducible range download from the author resource archive
+remotezip==0.12.6
+
+# Apple hardware runtime for the original Wav2Lip weights
+coremltools==9.0; sys_platform == 'darwin'
+
+# Offline preparation of eye expressions from clean portraits (LivePortrait)
+onnx==1.16.1
+imageio==2.34.2
+imageio-ffmpeg==0.5.1
+scikit-image==0.24.0
+albumentations==1.4.10
+tyro==0.8.5
+pykalman==0.9.7
+lmdb==1.4.1

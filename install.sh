@@ -13,6 +13,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+if [[ "$(uname -s)" = Darwin ]]; then
+  exec ./scripts/install-mac.sh
+fi
+
 # llama-server 端口单一来源：config.yaml 的 llm.base_url，改端口只需改那一处
 LLM_BASE=$(sed -n 's/^[[:space:]]*base_url:[[:space:]]*\([^ #]*\).*/\1/p' config.yaml | head -1)
 LLM_PORT=${LLM_BASE##*:}

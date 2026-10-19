@@ -1,0 +1,30 @@
+server:
+  host: 127.0.0.1
+  port: 7860
+  greeting: 请用一句简短的中文和我打招呼。
+persona:
+  file: persona.md
+  no_think: false
+llm:
+  engine: llamacpp
+  base_url: http://127.0.0.1:8200/v1
+  model: dolphin3.0-llama3.1-8b
+  max_tokens: 128
+stt:
+  engine: whisper
+  model: base
+  language: zh
+tts:
+  engine: macos
+  voice: Tingting
+vad:
+  device: cpu
+  sample_rate: 16000
+  min_speech_ms: 350
+  min_silence_ms: 600
+avatar:
+  enabled: true
+  base_url: http://127.0.0.1:8010
+  ice_servers: []
+memory:
+  turns: 4

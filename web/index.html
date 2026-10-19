@@ -12,6 +12,8 @@
     <title>AI Cyber Girlfriend · 实时语音对话</title>
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/layout.css" />
+    <link rel="stylesheet" href="/avatar-versions.css?v=custom3d-2" />
+    <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm.module.min.js"}}</script>
   </head>
   <!-- `booting` 关闭过渡/动画直到首帧绘制完，避免 orb 开场闪现 -->
   <body class="booting">
@@ -42,6 +44,30 @@
         </div>
       </header>
 
+      <section class="avatar-versions" aria-label="人物版本">
+        <div class="avatar-version-tabs">
+          <button type="button" data-avatar-mode="face" aria-pressed="true">面部版</button>
+          <button type="button" data-avatar-mode="body" aria-pressed="false">肢体版 · 3D</button>
+        </div>
+        <label id="face-character-wrap">人物
+          <select id="face-character"><option value="hex_clean_original">原人物 · 干净素材</option><option value="hex_clean_sweet">甜美人物</option></select>
+        </label>
+        <p id="avatar-status" role="status">正在准备人物…</p>
+        <button id="avatar-preview-speech" type="button" title="播放本地克隆音色，不启用麦克风">试听问候</button>
+        <div id="body-actions" hidden aria-label="动作预览">
+          <button type="button" data-gesture="wave">挥手</button>
+          <button type="button" data-gesture="nod">点头</button>
+          <button type="button" data-gesture="think">思考</button>
+          <button type="button" data-gesture="explain">讲述</button>
+          <button type="button" data-gesture="bow">鞠躬</button>
+          <button type="button" data-gesture="walk">走动</button>
+          <button type="button" data-gesture="dance">跳舞</button>
+        </div>
+        <form id="avatar-text-form" class="avatar-text-form" aria-label="文字交流">
+          <label for="avatar-text-input">文字交流</label>
+          <div><input id="avatar-text-input" type="text" maxlength="2000" autocomplete="off" placeholder="和我聊聊，或让我挥手…" /><button type="submit">发送</button></div>
+        </form>
+      </section>
       <main class="stage">
         <div class="orb-wrap">
           <div id="mic-gate" class="mic-gate">
@@ -185,6 +211,6 @@
     </dialog>
 
     <script src="/digital-avatar.js"></script>
-    <script type="module" src="/main.js"></script>
+    <script type="module" src="/main.js?v=polish-5"></script>
   </body>
 </html>
