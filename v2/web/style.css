@@ -1381,6 +1381,20 @@ body.cam-on .footer {
   letter-spacing: 0.02em;
 }
 
+.mic-help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.mic-help-body p { margin: 0; }
+.mic-help-body ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.mic-help-detail { color: var(--text-faint); font-size: 12px; word-break: break-word; }
+.mic-help-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mic-help-actions .btn { text-decoration: none; text-align: center; }
+
 .field[hidden] { display: none; }
 .field {
   display: flex;

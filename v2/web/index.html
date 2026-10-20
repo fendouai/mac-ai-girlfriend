@@ -10,7 +10,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>AI Cyber Girlfriend · 实时语音对话</title>
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=mic-1" />
     <link rel="stylesheet" href="/layout.css" />
     <link rel="stylesheet" href="/avatar-versions.css?v=custom3d-2" />
     <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm.module.min.js"}}</script>
@@ -211,7 +211,32 @@
       </form>
     </dialog>
 
+    <dialog id="mic-help" class="modal">
+      <form method="dialog" class="modal-content">
+        <header class="modal-header">
+          <h2>需要麦克风权限</h2>
+          <button class="icon-btn" value="close" aria-label="关闭">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </header>
+        <div class="mic-help-body">
+          <p>浏览器或 macOS 拒绝了麦克风。请依次检查：</p>
+          <ol>
+            <li>打开“系统设置 → 隐私与安全性 → 麦克风”，允许当前浏览器（Chrome / Safari）。</li>
+            <li>点击地址栏左侧的网站图标 → 网站设置 → 麦克风 → 允许。</li>
+            <li>回到本页点击“重试麦克风”。</li>
+          </ol>
+          <p id="mic-help-detail" class="mic-help-detail"></p>
+          <div class="mic-help-actions">
+            <a class="btn primary" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone">打开系统设置</a>
+            <button type="button" id="mic-retry" class="btn primary">重试麦克风</button>
+            <button type="button" id="mic-text-mode" class="btn">先用文字交流</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
     <script src="/digital-avatar.js"></script>
-    <script type="module" src="/main.js?v=polish-5"></script>
+    <script type="module" src="/main.js?v=polish-6"></script>
   </body>
 </html>

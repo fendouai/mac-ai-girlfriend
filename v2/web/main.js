@@ -106,6 +106,8 @@ const micBtn = $("#mic-btn");
 const stopBtn = $("#stop-btn");
 const settingsBtn = $("#settings-btn");
 const settingsModal = $("#settings-modal");
+const micHelp = $("#mic-help");
+const micHelpDetail = $("#mic-help-detail");
 const settingsForm = settingsModal.querySelector("form");
 const inputAudioInput = $("#audio-input");
 const inputAudioOutput = $("#audio-output");
@@ -282,18 +284,60 @@ function createResumedAudioContext() {
     return null;
   }
 }
+function isMicPermissionError(err) {
+  const name = err?.name || "";
+  const message = String(err?.message || err || "");
+  return ["NotAllowedError", "PermissionDeniedError", "NotFoundError", "NotReadableError", "SecurityError", "OverconstrainedError"].includes(name)
+    || /麦克风|microphone|permission/i.test(message);
+}
+
+function micErrorDetail(err) {
+  const name = err?.name || "";
+  const raw = String(err?.message || err || "");
+  const map = {
+    NotAllowedError: "浏览器或 macOS 拒绝了权限（NotAllowedError）。",
+    PermissionDeniedError: "浏览器或 macOS 拒绝了权限（PermissionDeniedError）。",
+    NotFoundError: "没有找到可用的麦克风设备（NotFoundError）。",
+    NotReadableError: "麦克风被其他应用占用，或系统无法读取（NotReadableError）。",
+    SecurityError: "页面不是安全上下文，请使用 localhost 或 HTTPS 访问。",
+    OverconstrainedError: "保存的麦克风设备不可用（OverconstrainedError），请在设置中改用系统默认。",
+  };
+  const base = map[name] || "麦克风不可用。";
+  return raw && raw !== "Permission denied" ? `${base} ${raw}` : base;
+}
+
+function showMicHelp(err) {
+  if (micHelpDetail) micHelpDetail.textContent = micErrorDetail(err);
+  if (!micHelp) return;
+  if (!micHelp.open) {
+    try { micHelp.showModal(); } catch (e) { console.warn("[main] mic help:", e); }
+  }
+}
+
 async function primeMicPermission() {
   try {
     const s = await navigator.mediaDevices.getUserMedia(micConstraints());
     for (const t of s.getTracks()) t.stop();
+    if (micHelp?.open) micHelp.close();
   } catch (err) {
-    throw new Error("麦克风权限被拒绝" + (err instanceof Error ? ": " + err.message : ""));
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 async function acquireMicStream() {
   micStream = await navigator.mediaDevices.getUserMedia(micConstraints());
   return micStream;
 }
+
+$("#mic-retry")?.addEventListener("click", () => {
+  micHelp?.close();
+  void doStart().catch((err) => handleStartError(err));
+});
+$("#mic-text-mode")?.addEventListener("click", () => {
+  micHelp?.close();
+  setState("idle");
+  setCaption("可以先在下方输入文字聊天", "muted");
+  $("#avatar-text-input").focus();
+});
 
 let harnessHideTimer = 0;
 function setHarnessStatus(text, kind = "running", hideAfter = 0) {
@@ -421,6 +465,12 @@ async function doStart(audioContext, preview = false) {
     if (!preview) await primeMicPermission();
   } catch (err) {
     if (audioContext) void audioContext.close().catch(() => {});
+    if (isMicPermissionError(err)) {
+      showMicHelp(err);
+      setState("idle");
+      setCaption("需要麦克风权限", "error");
+      return;
+    }
     throw err;
   }
 
@@ -450,6 +500,14 @@ async function doStart(audioContext, preview = false) {
     await c.connect();
   } catch (err) {
     if (audioContext) void audioContext.close().catch(() => {});
+    if (isMicPermissionError(err)) {
+      try { await c.close(); } catch (e) {}
+      if (client === c) client = null;
+      showMicHelp(err);
+      setState("idle");
+      setCaption("需要麦克风权限", "error");
+      return;
+    }
     throw err;
   }
   // 数字人：画面+声音都从 LiveTalking 同一条 WebRTC 流回传（同轨，天然对口型）。
