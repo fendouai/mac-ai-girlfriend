@@ -84,7 +84,7 @@
 | 芯片 | Apple Silicon（`arm64`）；安装脚本会检查架构 |
 | 已验证机器 | Apple M4、24GB 统一内存、macOS 26.6.2；这是实测配置，不是最低配置保证 |
 | Python | 3.11，由 `uv` 创建项目内的 `.venv` |
-| 本地工具 | `git`、`uv`、`ffmpeg`；LM Studio 及其 `lms` 命令 |
+| 本地工具 | `git`、`uv`、`ffmpeg`；[LM Studio](https://lmstudio.ai/) 及其 `lms` 命令 |
 | 浏览器 | 支持 WebRTC、AudioWorklet 和 WebGL；使用 `localhost` 访问麦克风 |
 | 模型 | SenseVoiceSmall、CosyVoice2、Wav2Lip、silero-vad，以及 LM Studio 中的对话模型 |
 | 端口 | `7860` 网页、`8010` 数字人、`8200` LM Studio |
@@ -159,7 +159,7 @@ lms ls
 
 ### 4. 一键启动
 
-先确保 LM Studio 的本地 API 和模型已就绪，再启动数字人与网页：
+先启动 LM Studio 的本地 API 并加载模型，再启动数字人与网页：
 
 ```bash
 # 每次启动：启动 LM Studio API，并加载默认模型
@@ -248,21 +248,13 @@ tail -f logs/avatar-mac.log
 ## 架构与数据流
 
 ```mermaid
-flowchart LR
-  subgraph B["浏览器"]
-    Mic["麦克风 / 文字"]
-    Face["面部版 video"]
-    VRM["3D VRM"]
-  end
-  Mic -->|"WebSocket"| Srv["FastAPI 编排层"]
-  Srv --> VAD["silero-vad"]
-  VAD --> STT["SenseVoice"]
-  STT --> LLM["LM Studio"]
-  LLM --> TTS["CosyVoice2"]
+flowchart TB
+  Mic["麦克风 / 文字"] -->|"WebSocket"| Srv["FastAPI 编排层"]
+  Srv --> VAD["silero-vad"] --> STT["SenseVoice"] --> LLM["LM Studio"] --> TTS["CosyVoice2"]
   TTS -->|"面部版"| LT["LiveTalking + Wav2Lip"]
-  LT -->|"WebRTC 音视频"| Face
   TTS -->|"3D PCM"| AW["AudioWorklet"]
-  AW --> VRM
+  LT -->|"WebRTC 音视频"| Face["面部版 video"]
+  AW --> VRM["3D VRM"]
 ```
 
 文字输入从编排层直接进入对话模型，不经过 VAD / 语音识别；上图省略了该分支。两条播放路径分别是：
