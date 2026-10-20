@@ -1,0 +1,66 @@
+server:
+  host: 127.0.0.1
+  port: 7861
+  greeting: 请用一句简短的中文和我打招呼。
+persona:
+  file: persona.md
+  no_think: false
+llm:
+  engine: llamacpp
+  base_url: http://127.0.0.1:8200/v1
+  model: dolphin3.0-llama3.1-8b
+  max_tokens: 64
+  temperature: 0.65
+  top_p: 0.85
+  max_reply_chars: 40
+  max_reply_sentences: 2
+stt:
+  engine: sensevoice
+  model: ../models/SenseVoiceSmall
+  device: cpu
+  quantize: true
+  language: zh
+tts:
+  engine: cosyvoice
+  cosyvoice_repo: ../third_party/CosyVoice
+  model_dir: ../models/CosyVoice2-0.5B
+  ref_wav: data/prompt1.mp3
+  ref_text: 呜呜, 你怎么才回来呀, 人家等你等得都快成望夫石了。手机都要刷爆了，就是没有你的消息，哼，坏蛋！
+  instruct: 带点撒娇 轻微抱怨的语气说
+  device: mps
+  flow_coreml: ../models/cosyvoice2-flow.mlpackage
+  speech_backend: mlx
+  speech_dtype: float16
+  speed: 1.0
+  chunk_ms: 0
+vad:
+  device: cpu
+  sample_rate: 16000
+  min_speech_ms: 350
+  min_silence_ms: 600
+avatar:
+  id: hex_clean_original
+  enabled: true
+  base_url: http://127.0.0.1:8010
+  ice_servers: []
+memory:
+  turns: 4
+harness:
+  # v2: DeepSeek Harness for non-chitchat tasks. Install the `dsh` CLI and put
+  # DEEPSEEK_API_KEY in .env before enabling; missing CLI/key falls back to the
+  # local model instead of breaking the voice pipeline.
+  enabled: true
+  command: ["dsh", "--profile", "headless", "--json"]
+  workspace: "~/Documents/HexHarnessWorkspace"
+  dsh_home: "./.dsh-home"
+  timeout_s: 300
+  max_events: 500
+  max_output_chars: 20000
+  env_file: ".env"
+  # Explicit product choice for v2.0: full access, no per-command approval.
+  # The process still runs with cwd set to `workspace`; the log records the
+  # mode at startup. Set false for a workspace-write sandbox.
+  full_access: true
+  router:
+    mode: auto          # auto | explicit | off
+    confirm: false

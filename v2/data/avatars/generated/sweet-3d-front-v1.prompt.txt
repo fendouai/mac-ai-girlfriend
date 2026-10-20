@@ -1,0 +1,9 @@
+Use case: photorealistic-natural.
+Asset type: single frontal full-body source photograph for image-to-3D humanoid reconstruction and skeleton rigging.
+Reference image: preserve the fictional adult Asian woman's exact facial identity from the supplied portrait: kind brown eyes, natural skin, sweet gentle features, dark chestnut hair. She is an adult woman about 26 years old.
+Primary request: create a realistic full body studio photograph of this same woman in a neutral symmetric A pose. Both arms straight 40 degrees away from torso, elbows straight, open hands with five naturally spaced fingers visible, palms facing forward. Legs straight, feet hip width apart and parallel. Face forward, head level, lips gently closed with warm neutral expression. Anatomically natural adult proportions and detailed realistic face.
+Clothing: soft blush-pink fitted button cardigan over an ivory crewneck top, fitted straight light beige trousers and simple clean white low-top shoes. Long hair swept behind shoulders so it never obscures hands, arms or chest. No dangling accessories.
+Composition: ONE woman only, front view entire body, head and both shoes fully visible, comfortable padding all around, approximately orthographic 85mm camera at waist height, no perspective distortion. Hands and fingers unobstructed and separated from body.
+Lighting: soft even neutral studio illumination from both sides, detailed fine knit and realistic skin, no hard cast shadows.
+Background: genuinely transparent alpha, no floor, no props, no text, no labels, no montage or multiple views.
+Constraints: photorealistic human rather than anime, illustration, doll or game avatar. Preserve reference identity and sweet adult appearance. Pose must be clean enough for 3D meshing and automatic rigging.

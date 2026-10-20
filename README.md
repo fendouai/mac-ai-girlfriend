@@ -14,6 +14,8 @@
 
 **文档入口**：[Mac 实现细节](README_MAC.md) · [3D 制作记录](scripts/README-character3d.md) · [原版 README 归档](README_ORIGINAL.md) · [历史英文说明](README_EN.md)
 
+**v2 独立目录**：[v2/](v2/README.md)（DeepSeek Harness 版，网页端口 `7861`）。
+
 ## 目录
 
 - [界面与演示](#界面与演示)

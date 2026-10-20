@@ -1,0 +1,8 @@
+logs/
+.harness-cli/
+.dsh-home/
+.harness-workspace/
+.env
+__pycache__/
+*.pyc
+.DS_Store
