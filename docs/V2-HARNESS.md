@@ -12,6 +12,7 @@
 - [x] 前端 `#harness-status`：任务开始/工具执行/完成/失败状态；`s2s-ws-client` 事件透传。
 - [x] `scripts/install-harness.sh`：本地安装固定版本 `@deepseek-ai/dsh@0.2.1-rc.2`。
 - [x] 假进程单测：成功、失败、超时、取消、缺命令、路由、编排事件。
+- [x] 假 Harness UI 端到端：状态条、完整结果进入“对话记录”（Playwright + fake_dsh）。
 - [ ] 真实 headless 端到端：需要 `DEEPSEEK_API_KEY`。
 - [x] 完整结果写入“对话记录”，顶部状态条显示进度；独立任务卡片待做。
 - [ ] ACP 逐次权限确认（v2.1）。
@@ -282,7 +283,7 @@ cp .env.example .env
 | `web/ws/s2s-ws-client.js` | 新事件类型透传 |
 | `config.mac.yaml` | `harness` 配置段 |
 | `scripts/install-mac.sh` | 检测/安装 `dsh` CLI（或提示手动安装） |
-| `scripts/verify-harness.py` | 假进程单测 + 真实 headless E2E |
+| `tests/test_harness.py` | 假进程单测、超时/取消、路由与编排事件 |
 
 ## 12. 里程碑
 
