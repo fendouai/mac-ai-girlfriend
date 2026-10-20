@@ -5,6 +5,10 @@
 .avatar-versions label {display:flex;align-items:center;gap:12px;margin-top:12px;}
 .avatar-versions select {flex:1;min-width:0;background:#24202e;color:#ece1f0;border:1px solid #494052;border-radius:9px;padding:8px;font:inherit;}
 #avatar-status {line-height:1.5;font-size:12px;color:#a99cb5;}
+#harness-status {margin:8px 0 10px;padding:8px 10px;border:1px solid #4d4059;border-radius:10px;background:#241f2e;color:#d9cbe3;font-size:12px;line-height:1.45;white-space:pre-wrap;max-height:120px;overflow:auto;}
+#harness-status[data-kind=error] {border-color:#7a3d45;color:#ffc3c9;}
+#harness-status[data-kind=done] {border-color:#3f6a4a;color:#c9f0d2;}
+#harness-status[data-kind=running] {border-color:#6b5a3f;color:#f0dfb8;}
 #body-actions {display:flex;gap:7px;flex-wrap:wrap;}
 #body-actions[hidden],#face-character-wrap[hidden] {display:none;}
 #body-actions button {background:#292332;border:1px solid #4d4059;color:#e8dbe9;border-radius:10px;padding:7px 12px;cursor:pointer;font:inherit;}

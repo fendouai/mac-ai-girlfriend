@@ -14,6 +14,8 @@
 
 **文档入口**：[Mac 实现细节](README_MAC.md) · [3D 制作记录](scripts/README-character3d.md) · [原版 README 归档](README_ORIGINAL.md) · [历史英文说明](README_EN.md)
 
+**v2 开发**：[DeepSeek Harness 接入设计](docs/V2-HARNESS.md)（非闲聊任务交给 Harness，headless JSON 事件与结果播报）。
+
 ## 目录
 
 - [界面与演示](#界面与演示)
@@ -49,6 +51,7 @@
 - **自然语音链路**：支持麦克风对话、文字交流、试听问候和插话打断；面部版的声音与视频走同一条 WebRTC 连接。
 - **短回复与预缓冲**：默认先说一小段，需要时用“继续”展开；整段语音预先生成再播放，优先保证连续性和口型稳定。
 - **Apple Silicon 加速**：MLX / Metal、Core ML、MPS 和 VideoToolbox 分别承担语音解码、声学估计、口型与视频编码。
+- **复杂任务代理（v2）**：非闲聊任务交给 DeepSeek Harness 执行，进度显示在网页，结果用本地人声短句播报。
 - **一键安装与启动**：`./install.sh` 安装项目依赖与素材，`./scripts/start-mac.sh` 启动数字人与网页。
 
 ## 技术栈
@@ -59,6 +62,7 @@
 | 3D 渲染 | Three.js、three-vrm、自定义 VRM | 浏览器内全身骨骼、动作、表情与音频驱动口型 |
 | 服务层 | Python 3.11、FastAPI、Uvicorn、asyncio | 静态页面、Realtime 风格 WebSocket、LiveTalking 反向代理 |
 | 对话模型 | LM Studio / llama.cpp / Metal、`dolphin3.0-llama3.1-8b` | 本地 LLM，提供 OpenAI 兼容 API |
+| 复杂任务 | DeepSeek Harness、`dsh --profile headless --json` | 非闲聊任务、工具调用、多步执行与结果回传 |
 | 语音识别 | SenseVoiceSmall / FunASR、silero-vad | 中文语音识别与端点检测 |
 | 语音合成 | CosyVoice2-0.5B、MLX FP16、Core ML | 参考音色克隆、声学估计、HiFT 声码器 |
 | 面部口型 | Wav2Lip256 / Core ML、LiveTalking | 实时嘴型与 WebRTC 音视频回传 |
@@ -89,6 +93,7 @@
 | 本地工具 | `git`、`uv`、`ffmpeg`；[LM Studio](https://lmstudio.ai/) 及其 `lms` 命令 |
 | 浏览器 | 支持 WebRTC、AudioWorklet 和 WebGL；使用 `localhost` 访问麦克风 |
 | 模型 | SenseVoiceSmall、CosyVoice2、Wav2Lip、silero-vad，以及 LM Studio 中的对话模型 |
+| v2 深度任务 | Node.js 22+、`dsh` CLI；由 `./scripts/install-harness.sh` 安装到 `.harness-cli/` |
 | 端口 | `7860` 网页、`8010` 数字人、`8200` LM Studio |
 | 磁盘与网络 | 首次安装需要联网和额外磁盘空间；模型与预处理缓存不全部随 Git 分发 |
 
@@ -194,6 +199,8 @@ curl -fsS http://127.0.0.1:7860/api/health
 
 `engines_ready: false` 表示仍在预热；若 `startup_error` 非空，先处理该错误。网页能打开不代表模型已经加载完成。
 
+> **v2 深度任务（可选）**：先执行 `./scripts/install-harness.sh`，把 `DEEPSEEK_API_KEY` 写入项目 `.env`，再重启服务。非闲聊任务会交给 DeepSeek Harness；未配置凭据时会回退本地模型。详见 [v2 接入设计](docs/V2-HARNESS.md)。
+
 ### 5. 停止、重启与日志
 
 在运行 `start-mac.sh` 的终端按 **Ctrl+C**，脚本会停止它创建的网页和数字人进程。LM Studio 独立运行，需要时单独停止：
@@ -264,6 +271,7 @@ flowchart TB
 - **面部版**：生成的声音送入 LiveTalking，Wav2Lip 生成嘴型，声音与人物视频通过同一条 WebRTC 连接回到浏览器。
 - **3D 版**：PCM 通过 WebSocket 回到浏览器，AudioWorklet 播放并用同一播放时钟驱动嘴部；Three.js 在本地渲染人物。
 - 两条路径共享同一套识别、对话和克隆语音模型；各 WebSocket 独立保存会话、VAD、历史和取消状态。
+- v2 在编排层前增加任务路由：闲聊仍走本地模型；非闲聊任务进入 DeepSeek Harness，完成后由本地模型压缩成一句人声播报。详见 [v2 接入设计](docs/V2-HARNESS.md)。
 
 ## 配置
 
@@ -395,14 +403,19 @@ persona.md                      服务端人设
 requirements-mac.lock.txt       Mac 依赖锁
 install.sh                      安装入口；macOS 转交 scripts/install-mac.sh
 scripts/install-mac.sh          安装、模型下载与面部素材准备
+scripts/install-harness.sh      v2 安装固定版本 dsh CLI
 scripts/start-mac.sh            启动数字人与网页
 scripts/verify-*.py|*.mjs       端到端与回归测试
 src/                            FastAPI、编排、识别、语音和 Apple 加速
+src/harness.py                  v2 Harness 子进程与事件桥
+src/harness_router.py           v2 闲聊/任务路由
+tests/                          v2 路由与桥接测试
 web/                            网页、音频采集/播放、面部和 3D 展示
 web/assets/models/              自定义 VRM、材质与来源记录
 web/assets/motions/             3D 动作数据
 data/avatars/                   干净人物图、生成提示词和嘴周配置
 docs/screenshots/               README 展示截图与动图
+docs/V2-HARNESS.md              v2 DeepSeek Harness 接入设计
 models/                         本地模型与 Core ML 包
 third_party/livetalking/        原版口型后端及面部帧缓存
 third_party/CosyVoice/          语音克隆实现

@@ -45,3 +45,22 @@ avatar:
   ice_servers: []
 memory:
   turns: 4
+harness:
+  # v2: DeepSeek Harness for non-chitchat tasks. Install the `dsh` CLI and put
+  # DEEPSEEK_API_KEY in .env before enabling; missing CLI/key falls back to the
+  # local model instead of breaking the voice pipeline.
+  enabled: true
+  command: ["dsh", "--profile", "headless", "--json"]
+  workspace: "~/Documents/HexHarnessWorkspace"
+  dsh_home: "./.dsh-home"
+  timeout_s: 300
+  max_events: 500
+  max_output_chars: 20000
+  env_file: ".env"
+  # Explicit product choice for v2.0: full access, no per-command approval.
+  # The process still runs with cwd set to `workspace`; the log records the
+  # mode at startup. Set false for a workspace-write sandbox.
+  full_access: true
+  router:
+    mode: auto          # auto | explicit | off
+    confirm: false

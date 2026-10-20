@@ -25,6 +25,9 @@ _reverse_report.txt
 
 # Local runtime logs and PID files
 logs/
+.dsh-home/
+.harness-cli/
+.harness-workspace/
 
 # Installed, pinned dependency; restored by scripts/install-mac.sh
 /third_party/LivePortrait/

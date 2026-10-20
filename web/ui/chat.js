@@ -397,6 +397,22 @@ export class ChatView {
     this._scrollToBottom();
   }
 
+  /** Append the full DeepSeek Harness result to the durable history panel.
+   *  The spoken reply is a short summary; this row preserves the complete answer.
+   *  @param {string} text @param {string} [task] */
+  addHarnessResult(text, task = "") {
+    if (!text) return;
+    const empty = this._chatHistory.querySelector(".chat-empty");
+    if (empty) empty.remove();
+    const el = document.createElement("div");
+    el.className = "hist-msg harness";
+    el.innerHTML = `<div class="hist-role">DeepSeek Harness${task ? ` · ${escHtml(task)}` : ""}</div>`
+      + `<div class="hist-body">${escHtml(text)}</div>`;
+    this._chatHistory.appendChild(el);
+    this._scrollToBottom();
+    this._markUnread();
+  }
+
   /** Tag an assistant history row as interrupted (user barged in mid-reply).
    *  @param {HTMLElement | null} hist */
   _markHistInterrupted(hist) {

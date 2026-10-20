@@ -946,6 +946,19 @@ export class S2sWsRealtimeClient extends EventTarget {
         // 浏览器侧 main.js 监听本事件并回传 DigitalAvatar.sessionid。
         this.dispatchEvent(new CustomEvent("sessionid-request"));
         break;
+
+      case "harness.started":
+      case "harness.progress":
+      case "harness.event":
+      case "harness.result":
+      case "harness.error":
+      case "harness.cancelled":
+      case "harness.busy":
+      case "harness.unavailable":
+      case "harness.fallback":
+      case "harness.summary_failed":
+        this.dispatchEvent(new CustomEvent(type, { detail: event }));
+        break;
     }
   }
 

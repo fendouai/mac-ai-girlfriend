@@ -1928,6 +1928,9 @@ body.no-subtitles .bubble.user {
 .hist-msg.user { align-self: flex-start; }
 .hist-msg.assistant { align-self: flex-end; }
 .hist-msg.tool { align-self: flex-start; max-width: 100%; }
+.hist-msg.harness { align-self: flex-start; max-width: 100%; }
+.hist-msg.harness .hist-role { color: #d9b36c; }
+.hist-msg.harness .hist-body { max-height: 220px; overflow: auto; white-space: pre-wrap; }
 
 .hist-role {
   font-family: var(--font-mono);

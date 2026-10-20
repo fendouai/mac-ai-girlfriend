@@ -117,6 +117,7 @@ const inputAvatarId = $("#avatar-id");
 const gateValue = $("#gate-value");
 const gateMeterFill = $("#gate-meter-fill");
 const micGate = $("#mic-gate");
+const harnessStatusEl = $("#harness-status");
 const mgaArc = document.querySelector("#mic-gate-arc");
 const mgaTrack = document.querySelector("#mga-track");
 const mgaFill = document.querySelector("#mga-fill");
@@ -294,6 +295,29 @@ async function acquireMicStream() {
   return micStream;
 }
 
+let harnessHideTimer = 0;
+function setHarnessStatus(text, kind = "running", hideAfter = 0) {
+  if (!harnessStatusEl) return;
+  clearTimeout(harnessHideTimer);
+  const value = String(text || "").trim();
+  harnessStatusEl.hidden = !value;
+  harnessStatusEl.dataset.kind = kind;
+  harnessStatusEl.textContent = value.length > 140 ? value.slice(0, 139) + "…" : value;
+  if (value && hideAfter > 0) {
+    harnessHideTimer = setTimeout(() => {
+      harnessStatusEl.hidden = true;
+    }, hideAfter);
+  }
+}
+function resetHarnessStatus() {
+  clearTimeout(harnessHideTimer);
+  harnessHideTimer = 0;
+  if (!harnessStatusEl) return;
+  harnessStatusEl.hidden = true;
+  harnessStatusEl.textContent = "";
+  delete harnessStatusEl.dataset.kind;
+}
+
 function wireClientEvents(c) {
   c.addEventListener("reply-progress", (e) => {
     if (client !== c || currentState === "ai-speaking") return;
@@ -308,6 +332,44 @@ function wireClientEvents(c) {
   c.addEventListener("user-turn-stopped", (e) => chat.onUserTurnStopped(e.detail));
   c.addEventListener("user-audio", (e) => chat.onUserAudio(e.detail));
   c.addEventListener("response-finished", (e) => chat.onResponseFinished(e.detail));
+  c.addEventListener("harness.started", (e) => {
+    const task = String(e.detail?.task || "");
+    setHarnessStatus(`深度任务：${task}`, "running");
+  });
+  c.addEventListener("harness.event", (e) => {
+    const ev = e.detail?.event || {};
+    if (ev.type === "tool_call") {
+      setHarnessStatus(`深度任务：正在执行 ${ev.tool || "工具"}…`, "running");
+    } else if (ev.type === "tool_result") {
+      setHarnessStatus("深度任务：工具执行完成，继续处理…", "running");
+    } else if (ev.type === "error") {
+      setHarnessStatus(`深度任务：${ev.message || "执行出错"}`, "error", 12000);
+    }
+  });
+  c.addEventListener("harness.result", (e) => {
+    const seconds = Number(e.detail?.duration || 0);
+    const final = String(e.detail?.final || "");
+    if (final) chat.addHarnessResult(final, String(e.detail?.task || ""));
+    setHarnessStatus(`深度任务完成${seconds ? `（${seconds.toFixed(0)}s）` : ""}，结果已播报；完整结果在“对话记录”。`, "done", 12000);
+  });
+  c.addEventListener("harness.error", (e) => {
+    setHarnessStatus(`深度任务失败：${e.detail?.message || "未知错误"}`, "error", 15000);
+  });
+  c.addEventListener("harness.cancelled", (e) => {
+    setHarnessStatus(e.detail?.message || "深度任务已取消", "error", 6000);
+  });
+  c.addEventListener("harness.busy", (e) => {
+    setHarnessStatus(e.detail?.message || "上一个深度任务还在处理。", "running", 5000);
+  });
+  c.addEventListener("harness.unavailable", (e) => {
+    setHarnessStatus(`${e.detail?.reason || "深度任务未就绪"}；本次使用本地回答。`, "error", 10000);
+  });
+  c.addEventListener("harness.fallback", (e) => {
+    setHarnessStatus(e.detail?.message || "深度任务不可用，已回退本地回答。", "error", 10000);
+  });
+  c.addEventListener("harness.summary_failed", () => {
+    setHarnessStatus("深度任务完成，但语音摘要生成失败；完整结果已返回。", "error", 10000);
+  });
   c.addEventListener("error", (e) => { void onFatalError(e.detail.error); });
   c.addEventListener("server-error", (e) => {
     const msg = e.detail.error instanceof Error ? e.detail.error.message : String(e.detail.error);
@@ -349,6 +411,7 @@ async function doStart(audioContext, preview = false) {
   await configReady;
   chat.clear();
   chat.reset();
+  resetHarnessStatus();
   setState("connecting");
   setCaption("连接中…", "muted");
 
@@ -404,6 +467,7 @@ async function doStart(audioContext, preview = false) {
 
 async function teardown() {
   chat.reset({ dismiss: true });
+  resetHarnessStatus();
   if (client) {
     try { await client.close(); } catch (err) { console.warn("[main] close:", err); }
     client = null;

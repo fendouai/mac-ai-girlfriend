@@ -1,8 +1,20 @@
 # v2：让数字人调用 DeepSeek Harness 处理复杂任务
 
-> 状态：设计草案（待产品决策）  
-> 分支：`v2/harness`  
+> 状态：v2.0 后端骨架已落地（待真实 API key 验证）
+> 分支：`v2/harness`
 > 目标版本：v2.0（headless 接入）→ v2.1（ACP 权限确认）
+
+## 0. 当前进度
+
+- [x] `src/harness.py`：headless 子进程、NDJSON 事件、超时/取消、会话续接、密钥脱敏。
+- [x] `src/harness_router.py`：闲聊/任务路由；默认非闲聊交给 Harness。
+- [x] `src/orchestrator.py`：文本与语音回合接入、`harness.*` 事件、结果短摘要播报、取消。
+- [x] 前端 `#harness-status`：任务开始/工具执行/完成/失败状态；`s2s-ws-client` 事件透传。
+- [x] `scripts/install-harness.sh`：本地安装固定版本 `@deepseek-ai/dsh@0.2.1-rc.2`。
+- [x] 假进程单测：成功、失败、超时、取消、缺命令、路由、编排事件。
+- [ ] 真实 headless 端到端：需要 `DEEPSEEK_API_KEY`。
+- [x] 完整结果写入“对话记录”，顶部状态条显示进度；独立任务卡片待做。
+- [ ] ACP 逐次权限确认（v2.1）。
 
 ## 1. 目标
 
@@ -40,7 +52,7 @@ Harness：执行 git log / 读取文件 / 生成摘要
 | 明确说“调用 Harness / 深度处理 / 让 agent 来做” | 直接创建 Harness 任务，可先语音确认 |
 | 自动判断为复杂任务 | 先问一句“要我用深度任务处理吗？”，确认后执行 |
 | 任务执行中 | 不阻塞语音会话；可继续闲聊，也可说“算了”取消 |
-| 任务完成 | 数字人播报短摘要；完整结果进任务卡片和对话记录 |
+| 任务完成 | 数字人播报短摘要；完整结果进“对话记录” |
 | 说“继续/详细说说” | 同一 Harness 会话继续，保留上下文 |
 | 超时/失败 | 播报简短失败原因；卡片保留日志，可重试 |
 
@@ -169,7 +181,7 @@ dsh --profile headless --json [--session-id <id>] <task>
 | `tool_result` | `harness.progress` | 工具完成/失败 |
 | `text` | `harness.text` | 中间文本，默认不进语音 |
 | `thinking` | 不展示 | 仅调试日志 |
-| `final` | `harness.result` | 完整结果，进入卡片 |
+| `final` | `harness.result` | 完整结果，进入“对话记录” |
 | `error` | `harness.error` | 失败原因 |
 
 ### 结果压缩
@@ -242,7 +254,23 @@ harness:
 
 环境变量优先级：进程环境 → 项目 `.env` → `$DSH_HOME/.env`。不要把 key 写入 `config.mac.yaml`。
 
-## 10. 代码落点
+## 10. v2.0 运行
+
+```bash
+# 1. 安装固定版本的 dsh CLI 到 .harness-cli/（不需要全局 npm）
+./scripts/install-harness.sh
+
+# 2. 提供模型凭据（不要提交 .env）
+cp .env.example .env
+# 编辑 .env，填入 DEEPSEEK_API_KEY
+
+# 3. 正常启动
+./scripts/start-mac.sh
+```
+
+没有 key 或 `dsh` 时，非闲聊任务会返回 `harness.unavailable` / `harness.error`，不会中断本地语音链路。
+
+## 11. 代码落点
 
 | 模块 | 变更 |
 |---|---|
@@ -256,7 +284,7 @@ harness:
 | `scripts/install-mac.sh` | 检测/安装 `dsh` CLI（或提示手动安装） |
 | `scripts/verify-harness.py` | 假进程单测 + 真实 headless E2E |
 
-## 11. 里程碑
+## 12. 里程碑
 
 ### v2.0 MVP
 
@@ -280,7 +308,7 @@ harness:
 - 任务模板与技能（查资料、改代码、跑测试、总结文档）。
 - 长任务完成后的语音通知与未读标记。
 
-## 12. 测试计划
+## 13. 测试计划
 
 | 层级 | 内容 |
 |---|---|
@@ -291,15 +319,27 @@ harness:
 | 语音 E2E | 语音触发 → 确认 → 进度 → 摘要 TTS → 卡片结果 |
 | 故障 | 无 key、超时、进程崩溃、空 final、超长输出 |
 
-## 13. 待确认决策
+当前可运行：
 
-1. **触发方式**：自动判断 + 确认 / 仅显式口令 / 所有非闲聊都走 Harness。
-2. **权限边界**：只读研究 / 工作区可写 / 完全访问（是否允许语音直接执行）。
-3. **接入路线**：v2.0 先 headless，v2.1 再 ACP；还是一次直接上 ACP。
-4. **凭据来源**：独立 `DEEPSEEK_API_KEY`，还是给 headless profile 开启桌面已保存凭据。
-5. **工作区**：专用目录，还是直接操作本仓库。
+```bash
+.venv/bin/python -m pytest -q tests/test_harness.py
+```
 
-## 14. 参考
+真实 headless 验证需要 `.env` 中的 `DEEPSEEK_API_KEY`；未配置时应当看到 `llm-deepseek: no API key` 并以退出码 1 结束，这是预期的 fail-closed 行为。
+
+## 14. 已确认决策（2026-10-20）
+
+1. **触发方式**：所有非闲聊都交给 Harness；仅问候、情绪、角色扮演、短社交留在本地。
+2. **权限边界**：完全访问（`DSH_PERMISSION_MODE=danger-full-access`，审批 `never`）。这是明确的产品选择；风险是语音可触发任意命令与目录访问。
+3. **接入路线**：v2.0 先 headless，v2.1 再 ACP 做持久会话与逐次权限。
+4. **工作区**：专用目录 `~/Documents/HexHarnessWorkspace`；不可创建时回退到仓库内 `.harness-workspace/`。
+5. **凭据来源**：v2.0 使用 `.env` / 环境变量中的 `DEEPSEEK_API_KEY`。是否复用桌面已保存凭据仍未定；headless 默认禁用凭据存储，开启需要 profile patch。
+
+### 安全提示
+
+“完全访问”意味着工作区只是默认 cwd，不是硬边界。语音识别错误、提示注入或误触发都可能执行危险命令。建议仅在可信环境开启；v2.1 接入 ACP 后应补回逐次确认和审计。
+
+## 15. 参考
 
 - `@deepseek-ai/dsh-headless` README：一次性任务、`--json`、`--session-id`、退出码。
 - `@deepseek-ai/dsh-acp` README：ACP v1、持久会话、`session/request_permission`、取消。
