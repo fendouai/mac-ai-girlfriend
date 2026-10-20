@@ -404,7 +404,7 @@ web/                            网页、音频采集/播放、面部和 3D 展�
 web/assets/models/              自定义 VRM、材质与来源记录
 web/assets/motions/             3D 动作数据
 data/avatars/                   干净人物图、生成提示词和嘴周配置
-docs/screenshots/               README 展示截图与动图
+docs/screenshots/               README 展示截图
 models/                         本地模型与 Core ML 包
 third_party/livetalking/        原版口型后端及面部帧缓存
 third_party/CosyVoice/          语音克隆实现
