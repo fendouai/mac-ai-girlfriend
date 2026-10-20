@@ -586,6 +586,9 @@ async function fetchConfig() {
       avatarEnabled = json.avatarEnabled !== false;
       if (Array.isArray(json.avatarIceServers)) window.DigitalAvatar?.setIceServers(json.avatarIceServers);
       presentation.enabled = avatarEnabled;
+      // 读取服务端人设前先记住本地是否已有用户设置：下面的 avatarId 默认值
+      // 会写入 localStorage，不能再用它是否为空来判断是否需要预填人设。
+      const storedInstructions = localStorage.getItem(STORAGE.instructions);
       const faceSelect = document.getElementById('face-character');
       if (!settings.avatarId || settings.avatarId === 'hex_original_motion') {
         settings.avatarId = 'hex_clean_original';
@@ -598,8 +601,9 @@ async function fetchConfig() {
       if (typeof json.subtitleHideDelayMs === "number") {
         window.DigitalAvatar?.setSubtitleHideDelayMs(json.subtitleHideDelayMs);
       }
-      // 首次使用：用服务端人设预填 Instructions
-      if (persona && localStorage.getItem(STORAGE.instructions) === null) {
+      // 首次使用或仍是内置占位人设：用服务端人设预填 Instructions。
+      // 用户在设置中改过的人设保持不变。
+      if (persona && (storedInstructions === null || storedInstructions === DEFAULT_INSTRUCTIONS)) {
         settings.instructions = persona;
         saveSettings(settings);
         inputInstructions.value = persona;
